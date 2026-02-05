@@ -1,15 +1,62 @@
 import { google, sheets_v4 } from 'googleapis';
+import crypto from 'crypto';
 import { Expense, Category, UserSettings, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, PendingTransaction, TransactionRule } from '@/types';
+import { extractYearFromId } from '@/lib/id-utils';
 
-const EXPENSES_SHEET = 'Expenses';
+// ============================================
+// In-memory cache with TTL
+// ============================================
+
+interface CacheEntry<T> {
+  data: T;
+  expiresAt: number;
+}
+
+const cacheStore = new Map<string, CacheEntry<unknown>>();
+
+function cacheGet<T>(key: string): T | null {
+  const entry = cacheStore.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    cacheStore.delete(key);
+    return null;
+  }
+  return entry.data as T;
+}
+
+function cacheSet<T>(key: string, data: T, ttlMs: number): void {
+  cacheStore.set(key, { data, expiresAt: Date.now() + ttlMs });
+}
+
+function cacheDelete(key: string): void {
+  cacheStore.delete(key);
+}
+
+function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex').substring(0, 16);
+}
+
+const SPREADSHEET_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+const CATEGORIES_CACHE_TTL = 5 * 60 * 1000;   // 5 minutes
+const SETTINGS_CACHE_TTL = 5 * 60 * 1000;     // 5 minutes
+
+// Sheet names for main spreadsheet
 const CATEGORIES_SHEET = 'Categories';
 const SETTINGS_SHEET = 'Settings';
-const PENDING_TRANSACTIONS_SHEET = 'PendingTransactions';
+const getExpensesSheetName = (year: number) => `Expenses ${year}`;
 
-// Spreadsheet name patterns
-const getYearlySpreadsheetName = (year?: number) =>
-  `Expense Tracker ${year || new Date().getFullYear()}`;
+// Sheet names for import spreadsheet
+const AUTO_MAPPED_SHEET = 'AutoMapped';
+const UNCATEGORIZED_SHEET = 'Uncategorized';
+const IGNORED_SHEET = 'Ignored';
+
+// Spreadsheet names
+const MAIN_SPREADSHEET_NAME = 'Expense Tracker';
+const IMPORT_SPREADSHEET_NAME = 'Expense Tracker - Import';
 const LEGACY_SPREADSHEET_NAME = 'Expense Tracker Data';
+
+// Transaction columns for import sheets
+const TRANSACTION_HEADERS = ['id', 'date', 'description', 'amount', 'category', 'matchedRuleId', 'createdAt'];
 
 export function createSheetsClient(accessToken: string): sheets_v4.Sheets {
   const auth = new google.auth.OAuth2();
@@ -23,23 +70,34 @@ export function createDriveClient(accessToken: string) {
   return google.drive({ version: 'v3', auth });
 }
 
+// ============================================
+// Main Spreadsheet Operations
+// ============================================
+
+/**
+ * Get or create the main spreadsheet (single file for all data)
+ */
 export async function getOrCreateSpreadsheet(
   accessToken: string,
-  year?: number
+  _year?: number // Keep parameter for backwards compatibility but ignore it
 ): Promise<string> {
+  const cacheKey = `spreadsheet:${hashToken(accessToken)}`;
+  const cached = cacheGet<string>(cacheKey);
+  if (cached) return cached;
+
   const drive = createDriveClient(accessToken);
   const sheets = createSheetsClient(accessToken);
-  const yearlyName = getYearlySpreadsheetName(year);
 
-  // Search for year-specific spreadsheet first (e.g., "Expense Tracker 2026")
+  // Search for main spreadsheet first
   let searchResponse = await drive.files.list({
-    q: `name='${yearlyName}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+    q: `name='${MAIN_SPREADSHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
     fields: 'files(id, name)',
     spaces: 'drive',
   });
 
   let files = searchResponse.data.files;
   if (files && files.length > 0 && files[0].id) {
+    cacheSet(cacheKey, files[0].id, SPREADSHEET_CACHE_TTL);
     return files[0].id;
   }
 
@@ -52,46 +110,34 @@ export async function getOrCreateSpreadsheet(
 
   files = searchResponse.data.files;
   if (files && files.length > 0 && files[0].id) {
+    cacheSet(cacheKey, files[0].id, SPREADSHEET_CACHE_TTL);
     return files[0].id;
   }
 
-  // Create new spreadsheet only if neither exists
+  // Create new main spreadsheet
+  const currentYear = new Date().getFullYear();
   const createResponse = await sheets.spreadsheets.create({
     requestBody: {
       properties: {
-        title: yearlyName,
+        title: MAIN_SPREADSHEET_NAME,
       },
       sheets: [
         {
           properties: {
-            title: EXPENSES_SHEET,
-            gridProperties: {
-              frozenRowCount: 1,
-            },
-          },
-        },
-        {
-          properties: {
             title: CATEGORIES_SHEET,
-            gridProperties: {
-              frozenRowCount: 1,
-            },
+            gridProperties: { frozenRowCount: 1 },
           },
         },
         {
           properties: {
             title: SETTINGS_SHEET,
-            gridProperties: {
-              frozenRowCount: 1,
-            },
+            gridProperties: { frozenRowCount: 1 },
           },
         },
         {
           properties: {
-            title: PENDING_TRANSACTIONS_SHEET,
-            gridProperties: {
-              frozenRowCount: 1,
-            },
+            title: getExpensesSheetName(currentYear),
+            gridProperties: { frozenRowCount: 1 },
           },
         },
       ],
@@ -99,16 +145,7 @@ export async function getOrCreateSpreadsheet(
   });
 
   const spreadsheetId = createResponse.data.spreadsheetId!;
-
-  // Add headers to Expenses sheet
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${EXPENSES_SHEET}!A1:G1`,
-    valueInputOption: 'RAW',
-    requestBody: {
-      values: [['id', 'amount', 'date', 'category', 'description', 'createdAt', 'updatedAt']],
-    },
-  });
+  cacheSet(cacheKey, spreadsheetId, SPREADSHEET_CACHE_TTL);
 
   // Add headers to Categories sheet
   await sheets.spreadsheets.values.update({
@@ -137,7 +174,7 @@ export async function getOrCreateSpreadsheet(
     },
   });
 
-  // Add headers and defaults to Settings sheet
+  // Add headers to Settings sheet
   await sheets.spreadsheets.values.update({
     spreadsheetId,
     range: `${SETTINGS_SHEET}!A1:B1`,
@@ -156,107 +193,278 @@ export async function getOrCreateSpreadsheet(
       values: [
         ['currency', DEFAULT_SETTINGS.currency],
         ['onboardingCompleted', 'false'],
-        ['rules', '[]'], // Empty rules array
+        ['rules', '[]'],
       ],
     },
   });
 
-  // Add headers to PendingTransactions sheet
+  // Add headers to current year Expenses sheet
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A1:G1`,
+    range: `'${getExpensesSheetName(currentYear)}'!A1:G1`,
     valueInputOption: 'RAW',
     requestBody: {
-      values: [['id', 'date', 'description', 'amount', 'category', 'status', 'matchedRuleId', 'createdAt']],
+      values: [['id', 'amount', 'date', 'category', 'description', 'createdAt', 'updatedAt']],
     },
   });
 
   return spreadsheetId;
 }
 
+/**
+ * Ensure a year-specific expenses sheet exists in the main spreadsheet
+ */
+async function ensureYearExpensesSheet(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  year: number
+): Promise<void> {
+  const sheetName = getExpensesSheetName(year);
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetExists = spreadsheet.data.sheets?.some(
+    (s) => s.properties?.title === sheetName
+  );
 
-async function getOrCreateSpreadsheetForExpense(
-  accessToken: string,
-  expense: Expense
-): Promise<string> {
-  const year = new Date(expense.date).getFullYear();
-  return getOrCreateSpreadsheet(accessToken, year);
+  if (!sheetExists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetName,
+                gridProperties: { frozenRowCount: 1 },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `'${sheetName}'!A1:G1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['id', 'amount', 'date', 'category', 'description', 'createdAt', 'updatedAt']],
+      },
+    });
+  }
 }
 
-// Expense Operations
+// ============================================
+// Import Spreadsheet Operations
+// ============================================
 
+/**
+ * Get or create the import spreadsheet (separate file for pending transactions)
+ */
+export async function getOrCreateImportSpreadsheet(accessToken: string): Promise<string> {
+  const drive = createDriveClient(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // Search for import spreadsheet
+  const searchResponse = await drive.files.list({
+    q: `name='${IMPORT_SPREADSHEET_NAME}' and mimeType='application/vnd.google-apps.spreadsheet' and trashed=false`,
+    fields: 'files(id, name)',
+    spaces: 'drive',
+  });
+
+  const files = searchResponse.data.files;
+  if (files && files.length > 0 && files[0].id) {
+    return files[0].id;
+  }
+
+  // Create new import spreadsheet
+  const createResponse = await sheets.spreadsheets.create({
+    requestBody: {
+      properties: {
+        title: IMPORT_SPREADSHEET_NAME,
+      },
+      sheets: [
+        {
+          properties: {
+            title: AUTO_MAPPED_SHEET,
+            gridProperties: { frozenRowCount: 1 },
+          },
+        },
+        {
+          properties: {
+            title: UNCATEGORIZED_SHEET,
+            gridProperties: { frozenRowCount: 1 },
+          },
+        },
+        {
+          properties: {
+            title: IGNORED_SHEET,
+            gridProperties: { frozenRowCount: 1 },
+          },
+        },
+      ],
+    },
+  });
+
+  const spreadsheetId = createResponse.data.spreadsheetId!;
+
+  // Add headers to all import sheets
+  for (const sheetName of [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET]) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1:G1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [TRANSACTION_HEADERS],
+      },
+    });
+  }
+
+  return spreadsheetId;
+}
+
+/**
+ * Ensure import sheet exists with correct headers
+ */
+async function ensureImportSheet(
+  sheets: sheets_v4.Sheets,
+  spreadsheetId: string,
+  sheetName: string
+): Promise<void> {
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheetExists = spreadsheet.data.sheets?.some(
+    (s) => s.properties?.title === sheetName
+  );
+
+  if (!sheetExists) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            addSheet: {
+              properties: {
+                title: sheetName,
+                gridProperties: { frozenRowCount: 1 },
+              },
+            },
+          },
+        ],
+      },
+    });
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${sheetName}!A1:G1`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [TRANSACTION_HEADERS],
+      },
+    });
+  }
+}
+
+// ============================================
+// Expense Operations (using year-specific sheets)
+// ============================================
 
 export async function getExpenses(
+  accessToken: string,
+  spreadsheetId: string,
+  year?: number
+): Promise<Expense[]> {
+  const sheets = createSheetsClient(accessToken);
+  const targetYear = year || new Date().getFullYear();
+  const sheetName = getExpensesSheetName(targetYear);
+
+  try {
+    await ensureYearExpensesSheet(sheets, spreadsheetId, targetYear);
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `'${sheetName}'!A2:G`,
+    });
+
+    const rows = response.data.values;
+    if (!rows || rows.length === 0) {
+      return [];
+    }
+
+    return rows.map((row) => ({
+      id: row[0] || '',
+      amount: parseFloat(row[1]) || 0,
+      date: row[2] || '',
+      category: row[3] || '',
+      description: row[4] || '',
+      createdAt: row[5] || '',
+      updatedAt: row[6] || '',
+    }));
+  } catch (error) {
+    console.error(`Error reading expenses for year ${targetYear}:`, error);
+    return [];
+  }
+}
+
+/**
+ * Get expenses from all years (for reports, etc.)
+ */
+export async function getAllExpenses(
   accessToken: string,
   spreadsheetId: string
 ): Promise<Expense[]> {
   const sheets = createSheetsClient(accessToken);
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${EXPENSES_SHEET}!A2:G`,
-  });
+  const expenseSheets = spreadsheet.data.sheets?.filter(
+    (s) => s.properties?.title?.startsWith('Expenses ')
+  ) || [];
 
-  const rows = response.data.values;
-  if (!rows || rows.length === 0) {
-    return [];
+  const allExpenses: Expense[] = [];
+
+  for (const sheet of expenseSheets) {
+    const sheetName = sheet.properties?.title;
+    if (!sheetName) continue;
+
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `'${sheetName}'!A2:G`,
+      });
+
+      const rows = response.data.values;
+      if (rows && rows.length > 0) {
+        const expenses = rows.map((row) => ({
+          id: row[0] || '',
+          amount: parseFloat(row[1]) || 0,
+          date: row[2] || '',
+          category: row[3] || '',
+          description: row[4] || '',
+          createdAt: row[5] || '',
+          updatedAt: row[6] || '',
+        }));
+        allExpenses.push(...expenses);
+      }
+    } catch {
+      // Continue with other sheets if one fails
+    }
   }
 
-  return rows.map((row) => ({
-    id: row[0] || '',
-    amount: parseFloat(row[1]) || 0,
-    date: row[2] || '',
-    category: row[3] || '',
-    description: row[4] || '',
-    createdAt: row[5] || '',
-    updatedAt: row[6] || '',
-  }));
-}
-
-
-export async function getExpense(
-  accessToken: string,
-  spreadsheetId: string,
-  expenseId: string
-): Promise<Expense | null> {
-  const sheets = createSheetsClient(accessToken);
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${EXPENSES_SHEET}!A2:G`,
-  });
-
-  const rows = response.data.values;
-  if (!rows || rows.length === 0) {
-    return null;
-  }
-
-  const row = rows.find((r) => r[0] === expenseId);
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row[0] || '',
-    amount: parseFloat(row[1]) || 0,
-    date: row[2] || '',
-    category: row[3] || '',
-    description: row[4] || '',
-    createdAt: row[5] || '',
-    updatedAt: row[6] || '',
-  };
+  return allExpenses;
 }
 
 export async function addExpense(
   accessToken: string,
   expense: Expense
 ): Promise<void> {
-  const spreadsheetId = await getOrCreateSpreadsheetForExpense(accessToken, expense);
+  const spreadsheetId = await getOrCreateSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
+  const year = new Date(expense.date).getFullYear();
+  const sheetName = getExpensesSheetName(year);
+
+  await ensureYearExpensesSheet(sheets, spreadsheetId, year);
 
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: `${EXPENSES_SHEET}!A2:G`,
+    range: `'${sheetName}'!A2:G`,
     valueInputOption: 'RAW',
     insertDataOption: 'INSERT_ROWS',
     requestBody: {
@@ -277,13 +485,16 @@ export async function updateExpense(
   accessToken: string,
   expense: Expense
 ): Promise<void> {
-  const spreadsheetId = await getOrCreateSpreadsheetForExpense(accessToken, expense);
+  const spreadsheetId = await getOrCreateSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
+  const year = new Date(expense.date).getFullYear();
+  const sheetName = getExpensesSheetName(year);
 
-  // First, find the row with the expense ID
+  await ensureYearExpensesSheet(sheets, spreadsheetId, year);
+
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${EXPENSES_SHEET}!A:A`,
+    range: `'${sheetName}'!A:A`,
   });
 
   const rows = response.data.values;
@@ -292,12 +503,11 @@ export async function updateExpense(
   const rowIndex = rows.findIndex((row) => row[0] === expense.id);
   if (rowIndex === -1) return;
 
-  // Row index is 0-based, but sheet rows are 1-based (and row 1 is header)
   const sheetRow = rowIndex + 1;
 
   await sheets.spreadsheets.values.update({
     spreadsheetId,
-    range: `${EXPENSES_SHEET}!A${sheetRow}:G${sheetRow}`,
+    range: `'${sheetName}'!A${sheetRow}:G${sheetRow}`,
     valueInputOption: 'RAW',
     requestBody: {
       values: [[
@@ -316,24 +526,26 @@ export async function updateExpense(
 export async function deleteExpense(
   accessToken: string,
   spreadsheetId: string,
-  expenseId: string
+  expenseId: string,
+  year?: number
 ): Promise<void> {
   const sheets = createSheetsClient(accessToken);
+  const targetYear = year || extractYearFromId(expenseId);
 
-  // Get sheet ID for Expenses sheet
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId,
-  });
+  if (!targetYear) {
+    throw new Error(`Cannot determine year for expense ID: ${expenseId}`);
+  }
 
-  const expensesSheet = spreadsheet.data.sheets?.find(
-    (s) => s.properties?.title === EXPENSES_SHEET
+  const sheetName = getExpensesSheetName(targetYear);
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+  const sheet = spreadsheet.data.sheets?.find(
+    (s) => s.properties?.title === sheetName
   );
-  if (!expensesSheet?.properties?.sheetId) return;
+  if (!sheet?.properties?.sheetId) return;
 
-  // Find the row with the expense ID
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
-    range: `${EXPENSES_SHEET}!A:A`,
+    range: `'${sheetName}'!A:A`,
   });
 
   const rows = response.data.values;
@@ -342,7 +554,6 @@ export async function deleteExpense(
   const rowIndex = rows.findIndex((row) => row[0] === expenseId);
   if (rowIndex === -1) return;
 
-  // Delete the row
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
@@ -350,7 +561,7 @@ export async function deleteExpense(
         {
           deleteDimension: {
             range: {
-              sheetId: expensesSheet.properties.sheetId,
+              sheetId: sheet.properties.sheetId,
               dimension: 'ROWS',
               startIndex: rowIndex,
               endIndex: rowIndex + 1,
@@ -362,12 +573,63 @@ export async function deleteExpense(
   });
 }
 
+export async function addExpensesBatch(
+  accessToken: string,
+  expenses: Expense[]
+): Promise<void> {
+  const spreadsheetId = await getOrCreateSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // Group expenses by year
+  const expensesByYear = expenses.reduce((acc, expense) => {
+    const year = new Date(expense.date).getFullYear();
+    if (!acc[year]) {
+      acc[year] = [];
+    }
+    acc[year].push(expense);
+    return acc;
+  }, {} as Record<number, Expense[]>);
+
+  for (const yearStr in expensesByYear) {
+    const year = parseInt(yearStr);
+    const sheetName = getExpensesSheetName(year);
+
+    await ensureYearExpensesSheet(sheets, spreadsheetId, year);
+
+    const values = expensesByYear[year].map((expense) => [
+      expense.id,
+      expense.amount,
+      expense.date,
+      expense.category,
+      expense.description,
+      expense.createdAt,
+      expense.updatedAt,
+    ]);
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `'${sheetName}'!A2:G`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values,
+      },
+    });
+  }
+}
+
+// ============================================
 // Category Operations
+// ============================================
 
 export async function getCategories(
   accessToken: string,
   spreadsheetId: string
 ): Promise<Category[]> {
+  const cacheKey = `categories:${spreadsheetId}`;
+  const cached = cacheGet<Category[]>(cacheKey);
+  if (cached) return cached;
+
   const sheets = createSheetsClient(accessToken);
 
   const response = await sheets.spreadsheets.values.get({
@@ -377,15 +639,18 @@ export async function getCategories(
 
   const rows = response.data.values;
   if (!rows || rows.length === 0) {
+    cacheSet(cacheKey, DEFAULT_CATEGORIES, CATEGORIES_CACHE_TTL);
     return DEFAULT_CATEGORIES;
   }
 
-  return rows.map((row) => ({
+  const categories = rows.map((row) => ({
     id: row[0] || '',
     name: row[1] || '',
     color: row[2] || '#D4D4D4',
     icon: row[3] || undefined,
   }));
+  cacheSet(cacheKey, categories, CATEGORIES_CACHE_TTL);
+  return categories;
 }
 
 export async function addCategory(
@@ -409,6 +674,7 @@ export async function addCategory(
       ]],
     },
   });
+  cacheDelete(`categories:${spreadsheetId}`);
 }
 
 export async function updateCategory(
@@ -418,7 +684,6 @@ export async function updateCategory(
 ): Promise<void> {
   const sheets = createSheetsClient(accessToken);
 
-  // Find the row with the category ID
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${CATEGORIES_SHEET}!A:A`,
@@ -445,6 +710,7 @@ export async function updateCategory(
       ]],
     },
   });
+  cacheDelete(`categories:${spreadsheetId}`);
 }
 
 export async function deleteCategory(
@@ -454,17 +720,12 @@ export async function deleteCategory(
 ): Promise<void> {
   const sheets = createSheetsClient(accessToken);
 
-  // Get sheet ID for Categories sheet
-  const spreadsheet = await sheets.spreadsheets.get({
-    spreadsheetId,
-  });
-
+  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
   const categoriesSheet = spreadsheet.data.sheets?.find(
     (s) => s.properties?.title === CATEGORIES_SHEET
   );
   if (!categoriesSheet?.properties?.sheetId) return;
 
-  // Find the row with the category ID
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId,
     range: `${CATEGORIES_SHEET}!A:A`,
@@ -476,7 +737,6 @@ export async function deleteCategory(
   const rowIndex = rows.findIndex((row) => row[0] === categoryId);
   if (rowIndex === -1) return;
 
-  // Delete the row
   await sheets.spreadsheets.batchUpdate({
     spreadsheetId,
     requestBody: {
@@ -494,55 +754,21 @@ export async function deleteCategory(
       ],
     },
   });
+  cacheDelete(`categories:${spreadsheetId}`);
 }
 
-// Batch operations for OCR import
-export async function addExpensesBatch(
-  accessToken: string,
-  expenses: Expense[]
-): Promise<void> {
-  const sheets = createSheetsClient(accessToken);
-
-  // Group expenses by year
-  const expensesByYear = expenses.reduce((acc, expense) => {
-    const year = new Date(expense.date).getFullYear();
-    if (!acc[year]) {
-      acc[year] = [];
-    }
-    acc[year].push(expense);
-    return acc;
-  }, {} as Record<number, Expense[]>);
-
-  for (const year in expensesByYear) {
-    const spreadsheetId = await getOrCreateSpreadsheet(accessToken, parseInt(year));
-    const values = expensesByYear[year].map((expense) => [
-      expense.id,
-      expense.amount,
-      expense.date,
-      expense.category,
-      expense.description,
-      expense.createdAt,
-      expense.updatedAt,
-    ]);
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `${EXPENSES_SHEET}!A2:G`,
-      valueInputOption: 'RAW',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: {
-        values,
-      },
-    });
-  }
-}
-
+// ============================================
 // Settings Operations
+// ============================================
 
 export async function getSettings(
   accessToken: string,
   spreadsheetId: string
 ): Promise<UserSettings> {
+  const cacheKey = `settings:${spreadsheetId}`;
+  const cached = cacheGet<UserSettings>(cacheKey);
+  if (cached) return cached;
+
   const sheets = createSheetsClient(accessToken);
 
   try {
@@ -553,6 +779,7 @@ export async function getSettings(
 
     const rows = response.data.values;
     if (!rows || rows.length === 0) {
+      cacheSet(cacheKey, DEFAULT_SETTINGS, SETTINGS_CACHE_TTL);
       return DEFAULT_SETTINGS;
     }
 
@@ -569,9 +796,9 @@ export async function getSettings(
       }
     }
 
+    cacheSet(cacheKey, settings, SETTINGS_CACHE_TTL);
     return settings;
   } catch (error) {
-    // Settings sheet might not exist in older spreadsheets
     console.error('Error reading settings, using defaults:', error);
     return DEFAULT_SETTINGS;
   }
@@ -585,17 +812,12 @@ export async function updateSettings(
   const sheets = createSheetsClient(accessToken);
 
   try {
-    // Check if Settings sheet exists
-    const spreadsheet = await sheets.spreadsheets.get({
-      spreadsheetId,
-    });
-
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
     const settingsSheetExists = spreadsheet.data.sheets?.some(
       (s) => s.properties?.title === SETTINGS_SHEET
     );
 
     if (!settingsSheetExists) {
-      // Create Settings sheet if it doesn't exist
       await sheets.spreadsheets.batchUpdate({
         spreadsheetId,
         requestBody: {
@@ -604,9 +826,7 @@ export async function updateSettings(
               addSheet: {
                 properties: {
                   title: SETTINGS_SHEET,
-                  gridProperties: {
-                    frozenRowCount: 1,
-                  },
+                  gridProperties: { frozenRowCount: 1 },
                 },
               },
             },
@@ -614,7 +834,6 @@ export async function updateSettings(
         },
       });
 
-      // Add headers
       await sheets.spreadsheets.values.update({
         spreadsheetId,
         range: `${SETTINGS_SHEET}!A1:B1`,
@@ -625,7 +844,6 @@ export async function updateSettings(
       });
     }
 
-    // Clear existing settings (except header) and write new ones
     await sheets.spreadsheets.values.update({
       spreadsheetId,
       range: `${SETTINGS_SHEET}!A2:B3`,
@@ -641,249 +859,111 @@ export async function updateSettings(
     console.error('Error updating settings:', error);
     throw error;
   }
+  cacheDelete(`settings:${spreadsheetId}`);
 }
 
 // ============================================
-// Pending Transactions Operations
+// Pending Transactions Operations (Import Spreadsheet)
 // ============================================
 
-async function ensurePendingTransactionsSheet(
-  sheets: sheets_v4.Sheets,
-  spreadsheetId: string
-): Promise<void> {
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-  const sheetExists = spreadsheet.data.sheets?.some(
-    (s) => s.properties?.title === PENDING_TRANSACTIONS_SHEET
-  );
-
-  if (!sheetExists) {
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            addSheet: {
-              properties: {
-                title: PENDING_TRANSACTIONS_SHEET,
-                gridProperties: { frozenRowCount: 1 },
-              },
-            },
-          },
-        ],
-      },
-    });
-
-    await sheets.spreadsheets.values.update({
-      spreadsheetId,
-      range: `${PENDING_TRANSACTIONS_SHEET}!A1:H1`,
-      valueInputOption: 'RAW',
-      requestBody: {
-        values: [['id', 'date', 'description', 'amount', 'category', 'status', 'matchedRuleId', 'createdAt']],
-      },
-    });
+function getSheetNameForStatus(status: PendingTransaction['status']): string {
+  switch (status) {
+    case 'auto-mapped':
+      return AUTO_MAPPED_SHEET;
+    case 'ignored':
+      return IGNORED_SHEET;
+    default:
+      return UNCATEGORIZED_SHEET;
   }
 }
 
-export async function getPendingTransactions(
-  accessToken: string,
-  spreadsheetId: string
-): Promise<PendingTransaction[]> {
-  const sheets = createSheetsClient(accessToken);
-  await ensurePendingTransactionsSheet(sheets, spreadsheetId);
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A2:H`,
-  });
-
-  const rows = response.data.values;
-  if (!rows || rows.length === 0) {
-    return [];
-  }
-
-  return rows.map((row) => ({
-    id: row[0] || '',
-    date: row[1] || '',
-    description: row[2] || '',
-    amount: parseFloat(row[3]) || 0,
-    category: row[4] || undefined,
-    status: (row[5] as PendingTransaction['status']) || 'uncategorized',
-    matchedRuleId: row[6] || undefined,
-    createdAt: row[7] || '',
-  }));
-}
-
-export async function addPendingTransactions(
-  accessToken: string,
-  spreadsheetId: string,
-  transactions: PendingTransaction[]
-): Promise<void> {
-  const sheets = createSheetsClient(accessToken);
-  await ensurePendingTransactionsSheet(sheets, spreadsheetId);
-
-  const values = transactions.map((t) => [
+function transactionToRow(t: PendingTransaction): (string | number)[] {
+  return [
     t.id,
     t.date,
     t.description,
     t.amount,
     t.category || '',
-    t.status,
     t.matchedRuleId || '',
     t.createdAt,
-  ]);
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A2:H`,
-    valueInputOption: 'RAW',
-    insertDataOption: 'INSERT_ROWS',
-    requestBody: { values },
-  });
+  ];
 }
 
-export async function updatePendingTransaction(
-  accessToken: string,
-  spreadsheetId: string,
-  transaction: PendingTransaction
-): Promise<void> {
-  const sheets = createSheetsClient(accessToken);
-
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A:A`,
-  });
-
-  const rows = response.data.values;
-  if (!rows) return;
-
-  const rowIndex = rows.findIndex((row) => row[0] === transaction.id);
-  if (rowIndex === -1) return;
-
-  const sheetRow = rowIndex + 1;
-
-  await sheets.spreadsheets.values.update({
-    spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A${sheetRow}:H${sheetRow}`,
-    valueInputOption: 'RAW',
-    requestBody: {
-      values: [[
-        transaction.id,
-        transaction.date,
-        transaction.description,
-        transaction.amount,
-        transaction.category || '',
-        transaction.status,
-        transaction.matchedRuleId || '',
-        transaction.createdAt,
-      ]],
-    },
-  });
+function rowToTransaction(row: string[], status: PendingTransaction['status']): PendingTransaction {
+  return {
+    id: row[0] || '',
+    date: row[1] || '',
+    description: row[2] || '',
+    amount: parseFloat(row[3]) || 0,
+    category: row[4] || undefined,
+    status,
+    matchedRuleId: row[5] || undefined,
+    createdAt: row[6] || '',
+  };
 }
 
-export async function deletePendingTransaction(
+export async function getPendingTransactions(
   accessToken: string,
-  spreadsheetId: string,
-  transactionId: string
-): Promise<void> {
+  _spreadsheetId?: string // Ignored, uses import spreadsheet
+): Promise<PendingTransaction[]> {
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
+  const allTransactions: PendingTransaction[] = [];
 
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-  const pendingSheet = spreadsheet.data.sheets?.find(
-    (s) => s.properties?.title === PENDING_TRANSACTIONS_SHEET
-  );
-  if (!pendingSheet?.properties?.sheetId) return;
+  const sheetConfigs: { name: string; status: PendingTransaction['status'] }[] = [
+    { name: AUTO_MAPPED_SHEET, status: 'auto-mapped' },
+    { name: UNCATEGORIZED_SHEET, status: 'uncategorized' },
+    { name: IGNORED_SHEET, status: 'ignored' },
+  ];
 
-  const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
-    range: `${PENDING_TRANSACTIONS_SHEET}!A:A`,
-  });
+  for (const config of sheetConfigs) {
+    try {
+      await ensureImportSheet(sheets, importSpreadsheetId, config.name);
 
-  const rows = response.data.values;
-  if (!rows) return;
-
-  const rowIndex = rows.findIndex((row) => row[0] === transactionId);
-  if (rowIndex === -1) return;
-
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId,
-    requestBody: {
-      requests: [
-        {
-          deleteDimension: {
-            range: {
-              sheetId: pendingSheet.properties.sheetId,
-              dimension: 'ROWS',
-              startIndex: rowIndex,
-              endIndex: rowIndex + 1,
-            },
-          },
-        },
-      ],
-    },
-  });
-}
-
-export async function updateAllPendingTransactions(
-  accessToken: string,
-  spreadsheetId: string,
-  transactions: PendingTransaction[]
-): Promise<void> {
-  const sheets = createSheetsClient(accessToken);
-  await ensurePendingTransactionsSheet(sheets, spreadsheetId);
-
-  // Clear existing data (keep header)
-  const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
-  const pendingSheet = spreadsheet.data.sheets?.find(
-    (s) => s.properties?.title === PENDING_TRANSACTIONS_SHEET
-  );
-
-  if (pendingSheet?.properties?.sheetId) {
-    // Get current row count
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
-      range: `${PENDING_TRANSACTIONS_SHEET}!A:A`,
-    });
-
-    const currentRows = response.data.values?.length || 1;
-
-    if (currentRows > 1) {
-      // Delete all rows except header
-      await sheets.spreadsheets.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          requests: [
-            {
-              deleteDimension: {
-                range: {
-                  sheetId: pendingSheet.properties.sheetId,
-                  dimension: 'ROWS',
-                  startIndex: 1,
-                  endIndex: currentRows,
-                },
-              },
-            },
-          ],
-        },
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: importSpreadsheetId,
+        range: `${config.name}!A2:G`,
       });
+
+      const rows = response.data.values;
+      if (rows && rows.length > 0) {
+        const transactions = rows.map((row) => rowToTransaction(row, config.status));
+        allTransactions.push(...transactions);
+      }
+    } catch (error) {
+      console.error(`Error reading ${config.name} sheet:`, error);
     }
   }
 
-  // Add all transactions
-  if (transactions.length > 0) {
-    const values = transactions.map((t) => [
-      t.id,
-      t.date,
-      t.description,
-      t.amount,
-      t.category || '',
-      t.status,
-      t.matchedRuleId || '',
-      t.createdAt,
-    ]);
+  return allTransactions;
+}
+
+export async function addPendingTransactions(
+  accessToken: string,
+  _spreadsheetId: string, // Ignored
+  transactions: PendingTransaction[]
+): Promise<void> {
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // Group transactions by status/sheet
+  const bySheet: Record<string, PendingTransaction[]> = {};
+  for (const t of transactions) {
+    const sheetName = getSheetNameForStatus(t.status);
+    if (!bySheet[sheetName]) {
+      bySheet[sheetName] = [];
+    }
+    bySheet[sheetName].push(t);
+  }
+
+  for (const sheetName in bySheet) {
+    await ensureImportSheet(sheets, importSpreadsheetId, sheetName);
+
+    const values = bySheet[sheetName].map(transactionToRow);
 
     await sheets.spreadsheets.values.append({
-      spreadsheetId,
-      range: `${PENDING_TRANSACTIONS_SHEET}!A2:H`,
+      spreadsheetId: importSpreadsheetId,
+      range: `${sheetName}!A2:G`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values },
@@ -891,19 +971,360 @@ export async function updateAllPendingTransactions(
   }
 }
 
+export async function updatePendingTransaction(
+  accessToken: string,
+  _spreadsheetId: string, // Ignored
+  transaction: PendingTransaction
+): Promise<void> {
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // We need to find which sheet the transaction is currently in
+  // and move it if the status changed
+  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET];
+  const targetSheet = getSheetNameForStatus(transaction.status);
+
+  for (const sheetName of allSheets) {
+    try {
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: importSpreadsheetId,
+        range: `${sheetName}!A:A`,
+      });
+
+      const rows = response.data.values;
+      if (!rows) continue;
+
+      const rowIndex = rows.findIndex((row) => row[0] === transaction.id);
+      if (rowIndex === -1) continue;
+
+      // Found the transaction
+      if (sheetName === targetSheet) {
+        // Same sheet, just update
+        const sheetRow = rowIndex + 1;
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: importSpreadsheetId,
+          range: `${sheetName}!A${sheetRow}:G${sheetRow}`,
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: [transactionToRow(transaction)],
+          },
+        });
+      } else {
+        // Different sheet, delete from old and add to new
+        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
+        const sheet = spreadsheet.data.sheets?.find(
+          (s) => s.properties?.title === sheetName
+        );
+
+        if (sheet?.properties?.sheetId) {
+          await sheets.spreadsheets.batchUpdate({
+            spreadsheetId: importSpreadsheetId,
+            requestBody: {
+              requests: [
+                {
+                  deleteDimension: {
+                    range: {
+                      sheetId: sheet.properties.sheetId,
+                      dimension: 'ROWS',
+                      startIndex: rowIndex,
+                      endIndex: rowIndex + 1,
+                    },
+                  },
+                },
+              ],
+            },
+          });
+        }
+
+        // Add to target sheet
+        await ensureImportSheet(sheets, importSpreadsheetId, targetSheet);
+        await sheets.spreadsheets.values.append({
+          spreadsheetId: importSpreadsheetId,
+          range: `${targetSheet}!A2:G`,
+          valueInputOption: 'RAW',
+          insertDataOption: 'INSERT_ROWS',
+          requestBody: {
+            values: [transactionToRow(transaction)],
+          },
+        });
+      }
+      return;
+    } catch {
+      continue;
+    }
+  }
+}
+
+export async function deletePendingTransaction(
+  accessToken: string,
+  _spreadsheetId: string, // Ignored
+  transactionId: string
+): Promise<void> {
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET];
+
+  for (const sheetName of allSheets) {
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
+      const sheet = spreadsheet.data.sheets?.find(
+        (s) => s.properties?.title === sheetName
+      );
+      if (!sheet?.properties?.sheetId) continue;
+
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: importSpreadsheetId,
+        range: `${sheetName}!A:A`,
+      });
+
+      const rows = response.data.values;
+      if (!rows) continue;
+
+      const rowIndex = rows.findIndex((row) => row[0] === transactionId);
+      if (rowIndex === -1) continue;
+
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId: importSpreadsheetId,
+        requestBody: {
+          requests: [
+            {
+              deleteDimension: {
+                range: {
+                  sheetId: sheet.properties.sheetId,
+                  dimension: 'ROWS',
+                  startIndex: rowIndex,
+                  endIndex: rowIndex + 1,
+                },
+              },
+            },
+          ],
+        },
+      });
+      return;
+    } catch {
+      continue;
+    }
+  }
+}
+
+export async function updateAllPendingTransactions(
+  accessToken: string,
+  _spreadsheetId: string, // Ignored
+  transactions: PendingTransaction[]
+): Promise<void> {
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // Group transactions by status/sheet
+  const bySheet: Record<string, PendingTransaction[]> = {
+    [AUTO_MAPPED_SHEET]: [],
+    [UNCATEGORIZED_SHEET]: [],
+    [IGNORED_SHEET]: [],
+  };
+
+  for (const t of transactions) {
+    const sheetName = getSheetNameForStatus(t.status);
+    bySheet[sheetName].push(t);
+  }
+
+  // Clear and repopulate each sheet
+  for (const sheetName in bySheet) {
+    await ensureImportSheet(sheets, importSpreadsheetId, sheetName);
+
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
+    const sheet = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title === sheetName
+    );
+
+    if (sheet?.properties?.sheetId) {
+      // Get current row count
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: importSpreadsheetId,
+        range: `${sheetName}!A:A`,
+      });
+
+      const currentRows = response.data.values?.length || 1;
+
+      if (currentRows > 1) {
+        // Delete all rows except header
+        await sheets.spreadsheets.batchUpdate({
+          spreadsheetId: importSpreadsheetId,
+          requestBody: {
+            requests: [
+              {
+                deleteDimension: {
+                  range: {
+                    sheetId: sheet.properties.sheetId,
+                    dimension: 'ROWS',
+                    startIndex: 1,
+                    endIndex: currentRows,
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+    }
+
+    // Add transactions for this sheet
+    if (bySheet[sheetName].length > 0) {
+      const values = bySheet[sheetName].map(transactionToRow);
+
+      await sheets.spreadsheets.values.append({
+        spreadsheetId: importSpreadsheetId,
+        range: `${sheetName}!A2:G`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: { values },
+      });
+    }
+  }
+}
+
+/**
+ * Move confirmed transactions from import sheets to expense sheets
+ * and delete them from import spreadsheet
+ */
+export async function moveTransactionsToExpenses(
+  accessToken: string,
+  transactionIds: string[]
+): Promise<void> {
+  if (transactionIds.length === 0) return;
+
+  const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
+  const mainSpreadsheetId = await getOrCreateSpreadsheet(accessToken);
+  const sheets = createSheetsClient(accessToken);
+
+  // Find and collect transactions to move
+  const transactionsToMove: PendingTransaction[] = [];
+  const idsToDelete: { sheetName: string; rowIndex: number; sheetId: number }[] = [];
+
+  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET];
+
+  for (const sheetName of allSheets) {
+    try {
+      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
+      const sheet = spreadsheet.data.sheets?.find(
+        (s) => s.properties?.title === sheetName
+      );
+      if (!sheet?.properties?.sheetId) continue;
+
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: importSpreadsheetId,
+        range: `${sheetName}!A2:G`,
+      });
+
+      const rows = response.data.values;
+      if (!rows) continue;
+
+      const status = sheetName === AUTO_MAPPED_SHEET ? 'auto-mapped' : 'uncategorized';
+
+      rows.forEach((row, idx) => {
+        if (transactionIds.includes(row[0])) {
+          transactionsToMove.push(rowToTransaction(row, status));
+          idsToDelete.push({
+            sheetName,
+            rowIndex: idx + 2, // +2 for header and 1-based index
+            sheetId: sheet.properties!.sheetId!,
+          });
+        }
+      });
+    } catch {
+      continue;
+    }
+  }
+
+  if (transactionsToMove.length === 0) return;
+
+  // Convert to expenses and add to main spreadsheet
+  const now = new Date().toISOString();
+  const expenses: Expense[] = transactionsToMove.map((t) => ({
+    id: t.id,
+    amount: t.amount,
+    date: t.date,
+    category: t.category || '',
+    description: t.description,
+    createdAt: now,
+    updatedAt: now,
+  }));
+
+  // Group by year and add to appropriate sheets
+  const expensesByYear = expenses.reduce((acc, expense) => {
+    const year = new Date(expense.date).getFullYear();
+    if (!acc[year]) {
+      acc[year] = [];
+    }
+    acc[year].push(expense);
+    return acc;
+  }, {} as Record<number, Expense[]>);
+
+  for (const yearStr in expensesByYear) {
+    const year = parseInt(yearStr);
+    const sheetName = getExpensesSheetName(year);
+
+    await ensureYearExpensesSheet(sheets, mainSpreadsheetId, year);
+
+    const values = expensesByYear[year].map((expense) => [
+      expense.id,
+      expense.amount,
+      expense.date,
+      expense.category,
+      expense.description,
+      expense.createdAt,
+      expense.updatedAt,
+    ]);
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: mainSpreadsheetId,
+      range: `'${sheetName}'!A2:G`,
+      valueInputOption: 'RAW',
+      insertDataOption: 'INSERT_ROWS',
+      requestBody: {
+        values,
+      },
+    });
+  }
+
+  // Delete from import spreadsheet (in reverse order to maintain row indices)
+  idsToDelete.sort((a, b) => b.rowIndex - a.rowIndex);
+
+  for (const { sheetId, rowIndex } of idsToDelete) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: importSpreadsheetId,
+      requestBody: {
+        requests: [
+          {
+            deleteDimension: {
+              range: {
+                sheetId,
+                dimension: 'ROWS',
+                startIndex: rowIndex - 1, // Convert back to 0-based
+                endIndex: rowIndex,
+              },
+            },
+          },
+        ],
+      },
+    });
+  }
+}
+
 // ============================================
-// Rules Operations (stored in Settings sheet)
+// Rules Operations (stored in Settings sheet of main spreadsheet)
 // ============================================
 
 export async function getRules(
   accessToken: string,
-  spreadsheetId: string
+  _spreadsheetId?: string // Ignored, uses main spreadsheet
 ): Promise<TransactionRule[]> {
+  const mainSpreadsheetId = await getOrCreateSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
 
   try {
     const response = await sheets.spreadsheets.values.get({
-      spreadsheetId,
+      spreadsheetId: mainSpreadsheetId,
       range: `${SETTINGS_SHEET}!A2:B`,
     });
 
@@ -930,14 +1351,14 @@ export async function getRules(
 
 export async function saveRules(
   accessToken: string,
-  spreadsheetId: string,
+  _spreadsheetId: string, // Ignored
   rules: TransactionRule[]
 ): Promise<void> {
+  const mainSpreadsheetId = await getOrCreateSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
 
-  // Get current settings rows
   const response = await sheets.spreadsheets.values.get({
-    spreadsheetId,
+    spreadsheetId: mainSpreadsheetId,
     range: `${SETTINGS_SHEET}!A2:B`,
   });
 
@@ -945,10 +1366,9 @@ export async function saveRules(
   const rulesRowIndex = rows.findIndex((row) => row[0] === 'rules');
 
   if (rulesRowIndex !== -1) {
-    // Update existing rules row
-    const sheetRow = rulesRowIndex + 2; // +2 for header and 0-index
+    const sheetRow = rulesRowIndex + 2;
     await sheets.spreadsheets.values.update({
-      spreadsheetId,
+      spreadsheetId: mainSpreadsheetId,
       range: `${SETTINGS_SHEET}!A${sheetRow}:B${sheetRow}`,
       valueInputOption: 'RAW',
       requestBody: {
@@ -956,9 +1376,8 @@ export async function saveRules(
       },
     });
   } else {
-    // Append new rules row
     await sheets.spreadsheets.values.append({
-      spreadsheetId,
+      spreadsheetId: mainSpreadsheetId,
       range: `${SETTINGS_SHEET}!A2:B`,
       valueInputOption: 'RAW',
       requestBody: {
@@ -966,4 +1385,14 @@ export async function saveRules(
       },
     });
   }
+}
+
+// Legacy compatibility - keep old function signatures working
+export async function getExpense(
+  accessToken: string,
+  spreadsheetId: string,
+  expenseId: string
+): Promise<Expense | null> {
+  const expenses = await getAllExpenses(accessToken, spreadsheetId);
+  return expenses.find((e) => e.id === expenseId) || null;
 }

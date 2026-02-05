@@ -6,10 +6,12 @@ import {
   useReducer,
   useCallback,
   useEffect,
+  useRef,
   useState,
   ReactNode,
 } from 'react';
 import { useSession } from 'next-auth/react';
+import { extractYearFromId } from '@/lib/id-utils';
 import {
   Expense,
   Category,
@@ -118,6 +120,8 @@ interface DataProviderProps {
 export function DataProvider({ children }: DataProviderProps) {
   const { data: session, status } = useSession();
   const [categories, setCategories] = useState<Category[]>(() => getCachedCategories() || DEFAULT_CATEGORIES);
+  const categoriesRef = useRef(categories);
+  categoriesRef.current = categories;
 
   const cachedExpenses = getCachedExpenses();
   const [state, dispatch] = useReducer(expenseReducer, {
@@ -132,11 +136,10 @@ export function DataProvider({ children }: DataProviderProps) {
         dispatch({ type: 'SET_LOADING', payload: true });
       }
 
-      // Fetch expenses and categories in parallel
-      const currentYear = new Date().getFullYear();
+      // Fetch expenses and categories in parallel (no year filter — loads all years)
       const [expenseRes, categoryRes] = await Promise.all([
-        fetch(`/api/drive?type=expenses&year=${currentYear}`),
-        fetch(`/api/drive?type=categories&year=${currentYear}`), // Pass year for categories too
+        fetch('/api/drive?type=expenses'),
+        fetch('/api/drive?type=categories'),
       ]);
 
       const [expenseData, categoryData] = await Promise.all([
@@ -157,7 +160,7 @@ export function DataProvider({ children }: DataProviderProps) {
       // Cache all data for instant loads on navigation
       setCacheData(
         expenseData.expenses,
-        categoryData.error ? categories : categoryData.categories,
+        categoryData.error ? categoriesRef.current : categoryData.categories,
       );
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -166,7 +169,7 @@ export function DataProvider({ children }: DataProviderProps) {
         payload: error instanceof Error ? error.message : 'Failed to fetch data',
       });
     }
-  }, [categories, dispatch, session?.accessToken]);
+  }, []);
 
   // Fetch initial data
   useEffect(() => {
@@ -240,8 +243,10 @@ export function DataProvider({ children }: DataProviderProps) {
 
   const deleteExpense = useCallback(
     async (id: string) => {
+      const yearFromId = extractYearFromId(id);
+      const yearParam = yearFromId ? `&year=${yearFromId}` : '';
       const res = await fetch(
-        `/api/drive?type=expense&id=${id}`,
+        `/api/drive?type=expense&id=${id}${yearParam}`,
         { method: 'DELETE' }
       );
 
@@ -259,7 +264,7 @@ export function DataProvider({ children }: DataProviderProps) {
   );
 
   const refreshExpenses = useCallback(async () => {
-    await fetchData();
+    await fetchData(false);
   }, [fetchData]);
 
   // Category operations
@@ -299,7 +304,7 @@ export function DataProvider({ children }: DataProviderProps) {
 
       const res = await fetch('/api/drive', {
         method: 'PUT',
-        headers: { 'Content-Type': 'application' },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'category',
           data: category,

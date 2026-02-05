@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import {
   getOrCreateSpreadsheet,
   getExpenses,
+  getAllExpenses,
   addExpense,
   updateExpense,
   deleteExpense,
@@ -19,9 +20,11 @@ import {
   updateAllPendingTransactions,
   getRules,
   saveRules,
+  moveTransactionsToExpenses,
 } from '@/lib/google-sheets';
 import { Expense, Category, PendingTransaction, TransactionRule } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
+import { extractYearFromId } from '@/lib/id-utils';
 
 // GET - Fetch expenses or categories
 export async function GET(request: NextRequest) {
@@ -55,7 +58,27 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ rules, spreadsheetId });
     }
 
-    const expenses = await getExpenses(session.accessToken, spreadsheetId);
+    if (type === 'search') {
+      const query = searchParams.get('q')?.toLowerCase() || '';
+      if (!query) {
+        return NextResponse.json({ expenses: [] });
+      }
+      const currentYear = new Date().getFullYear();
+      const filterFn = (e: Expense) =>
+        e.description?.toLowerCase().includes(query) ||
+        String(e.amount).includes(query);
+
+      let filtered = (await getExpenses(session.accessToken, spreadsheetId, currentYear)).filter(filterFn);
+      if (filtered.length < 20) {
+        const prev = (await getExpenses(session.accessToken, spreadsheetId, currentYear - 1)).filter(filterFn);
+        filtered = [...filtered, ...prev];
+      }
+      filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      return NextResponse.json({ expenses: filtered.slice(0, 50) });
+    }
+
+    // Get expenses from all year sheets
+    const expenses = await getAllExpenses(session.accessToken, spreadsheetId);
     // Sort by date descending (most recent first)
     expenses.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     return NextResponse.json({ expenses, spreadsheetId });
@@ -90,23 +113,36 @@ export async function POST(request: NextRequest) {
     }
 
     if (type === 'expenses-batch') {
-      const now = new Date().toISOString();
-      const expenses: Expense[] = data.map((item: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>) => ({
-        id: uuidv4(),
-        ...item,
-        createdAt: now,
-        updatedAt: now,
-      }));
-      await addExpensesBatch(session.accessToken, expenses);
-      return NextResponse.json({ expenses });
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        return NextResponse.json({ error: 'No expenses data provided' }, { status: 400 });
+      }
+      try {
+        const now = new Date().toISOString();
+        const expenses: Expense[] = data.map((item: Omit<Expense, 'id' | 'createdAt' | 'updatedAt'>) => ({
+          id: `${new Date(item.date).getFullYear()}-${uuidv4()}`,
+          ...item,
+          createdAt: now,
+          updatedAt: now,
+        }));
+        await addExpensesBatch(session.accessToken, expenses);
+        return NextResponse.json({ expenses });
+      } catch (batchError) {
+        console.error('Batch save error:', batchError);
+        return NextResponse.json(
+          { error: batchError instanceof Error ? batchError.message : 'Batch save failed' },
+          { status: 500 }
+        );
+      }
     }
 
     if (type === 'pending-batch') {
       const spreadsheetId = await getOrCreateSpreadsheet(session.accessToken, year);
       const now = new Date().toISOString();
       const pendingTransactions: PendingTransaction[] = data.map((item: Omit<PendingTransaction, 'id' | 'createdAt'>) => ({
-        id: uuidv4(),
+        id: `${new Date(item.date).getFullYear()}-${uuidv4()}`,
         ...item,
+        // Ensure status is set correctly: has category = auto-mapped
+        status: item.category ? 'auto-mapped' : (item.status || 'uncategorized'),
         createdAt: now,
       }));
       await addPendingTransactions(session.accessToken, spreadsheetId, pendingTransactions);
@@ -137,10 +173,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    if (type === 'move-to-expenses') {
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        return NextResponse.json({ error: 'No transaction IDs provided' }, { status: 400 });
+      }
+      await moveTransactionsToExpenses(session.accessToken, data);
+      return NextResponse.json({ success: true, count: data.length });
+    }
+
     // Default: add single expense
     const now = new Date().toISOString();
+    const expenseYear = new Date(data.date).getFullYear();
     const expense: Expense = {
-      id: uuidv4(),
+      id: `${expenseYear}-${uuidv4()}`,
       ...data,
       createdAt: now,
       updatedAt: now,
@@ -227,35 +272,10 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
-    // For expense deletion, if year is provided, use that spreadsheet
-    if (year) {
-      const spreadsheetId = await getOrCreateSpreadsheet(session.accessToken, parseInt(year));
-      await deleteExpense(session.accessToken, spreadsheetId, id);
-    } else {
-      // If no year provided, we need to search for the expense across all yearly spreadsheets
-      // This is a simplified approach - in a production app, you might want to store expense-year mapping
-      const currentYear = new Date().getFullYear();
-      const startYear = currentYear - 5; // Search last 5 years
-
-      let deleted = false;
-      for (let searchYear = currentYear; searchYear >= startYear; searchYear--) {
-        try {
-          const spreadsheetId = await getOrCreateSpreadsheet(session.accessToken, searchYear);
-          // We need to check if the expense exists in this spreadsheet before deleting
-          // For now, we'll just try to delete and catch any errors
-          await deleteExpense(session.accessToken, spreadsheetId, id);
-          deleted = true;
-          break;
-        } catch (error) {
-          // Continue to next year if expense not found in this spreadsheet
-          continue;
-        }
-      }
-
-      if (!deleted) {
-        return NextResponse.json({ error: 'Expense not found in any yearly spreadsheet' }, { status: 404 });
-      }
-    }
+    // Extract year from ID or query param
+    const targetYear = year ? parseInt(year) : extractYearFromId(id);
+    const spreadsheetId = await getOrCreateSpreadsheet(session.accessToken);
+    await deleteExpense(session.accessToken, spreadsheetId, id, targetYear || undefined);
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error deleting data:', error);
