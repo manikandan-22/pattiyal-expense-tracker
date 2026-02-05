@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Tag, Upload } from 'lucide-react';
+import { ArrowLeft, Tag, Upload, Settings2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -143,6 +143,19 @@ export default function SettingsPage() {
               <div className="text-left">
                 <p className="font-medium">Manage Categories</p>
                 <p className="text-sm text-text-secondary">Add, edit, or remove expense categories</p>
+              </div>
+            </Button>
+
+            {/* Categorization Rules */}
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-4 mb-3"
+              onClick={() => router.push('/settings/rules')}
+            >
+              <Settings2 className="w-5 h-5 mr-3" />
+              <div className="text-left">
+                <p className="font-medium">Categorization Rules</p>
+                <p className="text-sm text-text-secondary">Auto-categorize imported transactions</p>
               </div>
             </Button>
 

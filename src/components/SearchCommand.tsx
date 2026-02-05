@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Command } from 'cmdk';
-import { Search, X } from 'lucide-react';
+import { Search, X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Expense, Category } from '@/types';
 import { formatCurrency, formatDate, cn } from '@/lib/utils';
 import { useSettings } from '@/context/SettingsContext';
-import { modalVariants, backdropVariants, smoothSpring } from '@/lib/animations';
+import { modalVariants, backdropVariants } from '@/lib/animations';
 
 interface SearchCommandProps {
   open: boolean;
@@ -26,8 +26,9 @@ export function SearchCommand({
 }: SearchCommandProps) {
   const { settings } = useSettings();
   const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<Expense[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
-  // Create a category lookup map for O(1) access instead of O(n) find()
   const categoryMap = useMemo(() => {
     const map = new Map<string, Category>();
     for (const cat of categories) {
@@ -38,28 +39,31 @@ export function SearchCommand({
 
   const getCategoryById = (id: string) => categoryMap.get(id);
 
-  // Pre-compute searchable data for faster filtering
-  const searchableExpenses = useMemo(() => {
-    return expenses.map((expense) => {
-      const category = categoryMap.get(expense.category);
-      return {
-        expense,
-        category,
-        searchText: `${expense.description.toLowerCase()}|${category?.name.toLowerCase() || ''}|${expense.amount}`,
-      };
-    });
-  }, [expenses, categoryMap]);
-
-  const filteredExpenses = useMemo(() => {
+  // Server-side search with debounce
+  useEffect(() => {
     if (!search.trim()) {
-      return expenses.slice(0, 10); // Show recent expenses when no search
+      setSearchResults([]);
+      return;
     }
 
-    const searchLower = search.toLowerCase();
-    return searchableExpenses
-      .filter((item) => item.searchText.includes(searchLower))
-      .map((item) => item.expense);
-  }, [expenses, searchableExpenses, search]);
+    const timer = setTimeout(async () => {
+      setIsSearching(true);
+      try {
+        const res = await fetch(`/api/drive?type=search&q=${encodeURIComponent(search)}`);
+        const data = await res.json();
+        setSearchResults(data.expenses || []);
+      } catch {
+        setSearchResults([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  // Show recent expenses when no search, otherwise show search results
+  const filteredExpenses = search.trim() ? searchResults : expenses.slice(0, 10);
 
   return (
     <AnimatePresence>
@@ -108,13 +112,18 @@ export function SearchCommand({
 
               {/* Results */}
               <Command.List className="max-h-80 overflow-y-auto p-2">
-                {filteredExpenses.length === 0 && (
+                {isSearching && (
+                  <div className="py-8 flex justify-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
+                  </div>
+                )}
+                {!isSearching && filteredExpenses.length === 0 && search.trim() && (
                   <Command.Empty className="py-8 text-center text-text-secondary">
                     No expenses found.
                   </Command.Empty>
                 )}
 
-                {!search.trim() && filteredExpenses.length > 0 && (
+                {!isSearching && !search.trim() && filteredExpenses.length > 0 && (
                   <Command.Group heading="Recent Expenses" className="px-2 py-1.5 text-xs text-text-muted font-medium">
                     {filteredExpenses.map((expense) => {
                       const category = getCategoryById(expense.category);
@@ -154,7 +163,7 @@ export function SearchCommand({
                   </Command.Group>
                 )}
 
-                {search.trim() && filteredExpenses.length > 0 && (
+                {!isSearching && search.trim() && filteredExpenses.length > 0 && (
                   <>
                     {filteredExpenses.map((expense) => {
                       const category = getCategoryById(expense.category);

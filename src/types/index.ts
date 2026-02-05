@@ -50,8 +50,30 @@ export interface CsvTransaction {
 
 // Category mapping rules for auto-categorization
 export type RuleMatchType = 'contains' | 'startsWith' | 'endsWith' | 'equals';
+export type AmountMatchType = 'equals' | 'greaterThan' | 'lessThan' | 'between';
+export type RuleField = 'description' | 'amount';
+export type RuleLogicMode = 'all' | 'any'; // all = AND, any = OR
+
+export interface RuleCondition {
+  id: string;
+  field: RuleField;
+  matchType: RuleMatchType | AmountMatchType;
+  value: string;        // For description or single amount value
+  value2?: string;      // For "between" amount condition
+}
 
 export interface TransactionRule {
+  id: string;
+  name: string;                    // Rule name for easy identification
+  conditions: RuleCondition[];     // Multiple conditions
+  logicMode: RuleLogicMode;        // 'all' = AND, 'any' = OR
+  categoryId: string;
+  enabled: boolean;
+  createdAt: string;
+}
+
+// Legacy rule format for migration (single pattern)
+export interface LegacyTransactionRule {
   id: string;
   pattern: string;
   matchType: RuleMatchType;
@@ -192,6 +214,7 @@ export interface PendingTransactionsContextType {
   addPendingTransactions: (transactions: Omit<PendingTransaction, 'id' | 'createdAt'>[]) => Promise<void>;
   confirmTransaction: (id: string) => Promise<void>;
   confirmAllAutoMapped: () => Promise<void>;
+  saveMappedUncategorized: () => Promise<number>;  // Save manually categorized uncategorized transactions
   updateTransactionCategory: (id: string, categoryId: string) => Promise<void>;
   ignoreTransaction: (id: string) => Promise<void>;
   unignoreTransaction: (id: string) => Promise<void>;
@@ -200,4 +223,30 @@ export interface PendingTransactionsContextType {
   updateRule: (rule: TransactionRule) => Promise<void>;
   deleteRule: (id: string) => Promise<void>;
   refreshPendingTransactions: () => Promise<void>;
+}
+
+// === AI Chat Types ===
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+  attachments?: ChatAttachment[];
+  toolResults?: ToolResultDisplay[];
+  model?: string;
+  isError?: boolean;
+}
+
+export interface ChatAttachment {
+  type: 'pdf' | 'image';
+  name: string;
+  base64: string;
+  mimeType: string;
+}
+
+export interface ToolResultDisplay {
+  tool: string;
+  summary: string;
+  success: boolean;
 }

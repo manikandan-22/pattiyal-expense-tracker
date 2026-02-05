@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { useCategories } from '@/context/ExpenseContext';
 import { useSettings } from '@/context/SettingsContext';
+import { usePendingTransactions } from '@/context/TransactionsContext';
 import { useToast } from '@/hooks/useToast';
 import {
   parseCSV,
@@ -27,7 +28,7 @@ import {
   parseCsvTransactions,
 } from '@/lib/csvParser';
 import { CsvTransaction, Category, CurrencyCode } from '@/types';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, formatDate } from '@/lib/utils';
 import { smoothSpring, bouncySpring } from '@/lib/animations';
 
 const CATEGORY_COLORS = [
@@ -145,7 +146,7 @@ function TransactionRow({
       whileHover={{ backgroundColor: 'var(--surface-hover)' }}
       transition={{ duration: 0.15 }}
       className="flex items-center gap-3 px-3 py-3 border-b border-border last:border-b-0 text-sm">
-      <span className="text-text-muted w-20 flex-shrink-0">{transaction.date}</span>
+      <span className="text-text-muted w-20 flex-shrink-0">{formatDate(transaction.date)}</span>
       <span className="flex-1 text-text-primary break-words">{transaction.description}</span>
       <span className="text-text-primary font-medium w-20 text-right flex-shrink-0">
         {formatCurrency(transaction.amount, currency)}
@@ -193,6 +194,7 @@ function TransactionRow({
 export function CsvImport({ onComplete, onCancel }: CsvImportProps) {
   const { categories, addCategory } = useCategories();
   const { settings } = useSettings();
+  const { addPendingTransactions } = usePendingTransactions();
   const { toast } = useToast();
 
   // Wizard state
@@ -422,35 +424,40 @@ export function CsvImport({ onComplete, onCancel }: CsvImportProps) {
     }
   }, [newCategoryName, newCategoryColor, creatingCategoryFor, addCategory, toast]);
 
-  // Import
+  // Import - Add to pending transactions (auto-mapped if has category, uncategorized otherwise)
   const handleImport = useCallback(async () => {
     setIsImporting(true);
     try {
       const toImport = transactions.filter(t => t.selected);
-      const response = await fetch('/api/drive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'expenses-batch',
-          data: toImport.map(t => ({
-            amount: t.amount,
-            date: t.date,
-            category: t.category || 'other',
-            description: t.description,
-          })),
-        }),
-      });
 
-      const result = await response.json();
-      if (result.error) throw new Error(result.error);
+      // Add to pending transactions - the context will set status based on category
+      await addPendingTransactions(toImport.map(t => ({
+        amount: t.amount,
+        date: t.date,
+        category: t.category || undefined, // undefined if no category, so it goes to uncategorized
+        description: t.description,
+        status: t.category ? 'auto-mapped' : 'uncategorized',
+      })));
 
-      toast({ title: 'Success', description: `${toImport.length} expenses imported`, variant: 'success' });
+      const categorizedCount = toImport.filter(t => t.category).length;
+      const uncategorizedCount = toImport.length - categorizedCount;
+
+      let message = `${toImport.length} transactions imported`;
+      if (categorizedCount > 0 && uncategorizedCount > 0) {
+        message = `${categorizedCount} auto-mapped, ${uncategorizedCount} need review`;
+      } else if (categorizedCount > 0) {
+        message = `${categorizedCount} transactions auto-mapped`;
+      } else {
+        message = `${uncategorizedCount} transactions need review`;
+      }
+
+      toast({ title: 'Imported', description: message, variant: 'success' });
       onComplete();
     } catch (err) {
       toast({ title: 'Failed', description: err instanceof Error ? err.message : 'Import failed', variant: 'destructive' });
       setIsImporting(false);
     }
-  }, [transactions, toast, onComplete]);
+  }, [transactions, toast, onComplete, addPendingTransactions]);
 
   const selectedCount = transactions.filter(t => t.selected).length;
 

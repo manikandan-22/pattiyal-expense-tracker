@@ -1,6 +1,11 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { format as fnsFormat, parse as fnsParse } from 'date-fns';
 import { CurrencyCode, SUPPORTED_CURRENCIES } from '@/types';
+
+// Centralized date format – change here to update everywhere
+export const DATE_FORMAT = 'd MMM yyyy'; // e.g. "23 Jan 2026"
+export const MONTH_YEAR_FORMAT = 'MMM yyyy'; // e.g. "Jan 2026"
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -24,29 +29,17 @@ export function getCurrencySymbol(currencyCode: CurrencyCode = 'USD'): string {
 
 export function formatDate(dateString: string): string {
   const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
+  return fnsFormat(date, DATE_FORMAT);
 }
 
 export function formatFullDate(dateString: string): string {
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  }).format(date);
+  return formatDate(dateString);
 }
 
 export function formatMonthYear(monthString: string): string {
   // monthString format: YYYY-MM
-  const [year, month] = monthString.split('-');
-  const date = new Date(parseInt(year), parseInt(month) - 1);
-  return new Intl.DateTimeFormat('en-US', {
-    year: 'numeric',
-    month: 'long',
-  }).format(date);
+  const date = fnsParse(monthString, 'yyyy-MM', new Date());
+  return fnsFormat(date, MONTH_YEAR_FORMAT);
 }
 
 export function getMonthKey(dateString: string): string {
@@ -85,21 +78,9 @@ export function formatDayTitle(dateString: string): string {
     return 'Yesterday';
   }
 
-  // Check if same year
-  if (date.getFullYear() === today.getFullYear()) {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    }).format(date);
-  }
-
-  return new Intl.DateTimeFormat('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  }).format(date);
+  // Use centralized date format with weekday prefix
+  const weekday = fnsFormat(date, 'EEEE');
+  return `${weekday}, ${fnsFormat(date, DATE_FORMAT)}`;
 }
 
 export function groupExpensesByDay<T extends { date: string }>(

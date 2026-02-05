@@ -4,7 +4,7 @@ import * as React from 'react';
 import { useState, useEffect } from 'react';
 import { format, parse } from 'date-fns';
 import { Calendar as CalendarIcon } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, DATE_FORMAT } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import {
@@ -37,7 +37,7 @@ export function DatePicker({ value, onChange, className }: DatePickerProps) {
   const date = value ? parse(value, 'yyyy-MM-dd', new Date()) : undefined;
 
   // Format date for display
-  const displayValue = date ? format(date, 'MMM d, yyyy') : 'Pick a date';
+  const displayValue = date ? format(date, DATE_FORMAT) : 'Pick a date';
 
   // Handle calendar selection
   const handleSelect = (selectedDate: Date | undefined) => {
@@ -62,7 +62,7 @@ export function DatePicker({ value, onChange, className }: DatePickerProps) {
         </div>
         {date && (
           <p className="text-xs text-text-muted mt-1">
-            {format(date, 'EEEE, MMMM d, yyyy')}
+            {format(date, `EEEE, ${DATE_FORMAT}`)}
           </p>
         )}
       </div>
@@ -85,7 +85,7 @@ export function DatePicker({ value, onChange, className }: DatePickerProps) {
           {displayValue}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start">
+      <PopoverContent className="w-auto p-0" align="start" portal={false}>
         <Calendar
           mode="single"
           selected={date}

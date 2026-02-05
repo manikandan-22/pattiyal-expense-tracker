@@ -3,7 +3,7 @@
 import { createContext, useContext, useReducer, useCallback, useEffect, ReactNode } from 'react';
 import { useSession } from 'next-auth/react';
 import { PendingTransaction, TransactionRule, PendingTransactionsContextType } from '@/types';
-import { applyRulesToTransactions, applyNewRuleToTransactions } from '@/lib/ruleEngine';
+import { applyRulesToTransactions, applyNewRuleToTransactions, ensureModernRuleFormat } from '@/lib/ruleEngine';
 
 const PENDING_CACHE_KEY = 'expense-tracker-pending';
 const RULES_CACHE_KEY = 'expense-tracker-rules';
@@ -108,8 +108,10 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         if (rulesRes.ok) {
           const rulesData = await rulesRes.json();
           if (rulesData.rules) {
-            dispatch({ type: 'SET_RULES', payload: rulesData.rules });
-            sessionStorage.setItem(RULES_CACHE_KEY, JSON.stringify(rulesData.rules));
+            // Migrate any legacy rules to new format
+            const migratedRules = rulesData.rules.map(ensureModernRuleFormat);
+            dispatch({ type: 'SET_RULES', payload: migratedRules });
+            sessionStorage.setItem(RULES_CACHE_KEY, JSON.stringify(migratedRules));
           }
         }
       } catch (error) {
@@ -161,28 +163,63 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
 
       try {
         const year = new Date().getFullYear();
+        const now = new Date().toISOString();
+
+        // Build transactions with proper status
+        const processedTransactions = transactions.map((t, i) => {
+          const base = {
+            ...t,
+            id: `temp-${i}`,
+            createdAt: now,
+          };
+
+          // Check if any rule matches (for uncategorized transactions)
+          if (!t.category) {
+            const asTransaction: PendingTransaction = { ...base, status: 'uncategorized' };
+            const matchedRule = state.rules.find(rule =>
+              rule.enabled && rule.conditions.some(c =>
+                c.field === 'description' &&
+                t.description?.toLowerCase().includes(c.value.toLowerCase())
+              )
+            );
+            if (matchedRule) {
+              return {
+                ...base,
+                status: 'auto-mapped' as const,
+                category: matchedRule.categoryId,
+                matchedRuleId: matchedRule.id,
+              };
+            }
+          }
+
+          // Has category (from CSV mapping or rule) = auto-mapped
+          // No category = uncategorized
+          return {
+            ...base,
+            status: (t.category ? 'auto-mapped' : 'uncategorized') as PendingTransaction['status'],
+          };
+        });
+
         const response = await fetch('/api/drive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type: 'pending-batch', data: transactions, year }),
+          body: JSON.stringify({
+            type: 'pending-batch',
+            data: processedTransactions.map(t => ({ ...t, id: undefined })),
+            year
+          }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to add transactions');
+        }
 
         const result = await response.json();
         if (result.pendingTransactions) {
-          // Apply rules to new transactions
-          const withRules = applyRulesToTransactions(result.pendingTransactions, state.rules);
-          dispatch({ type: 'ADD_PENDING', payload: withRules });
-
-          // Update cache
-          const newPending = [...state.pendingTransactions, ...withRules];
+          dispatch({ type: 'ADD_PENDING', payload: result.pendingTransactions });
+          const newPending = [...state.pendingTransactions, ...result.pendingTransactions];
           sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify(newPending));
-
-          // Save updated transactions with rules applied
-          await fetch('/api/drive', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'pending-update-all', data: newPending, year }),
-          });
         }
       } catch (error) {
         console.error('Error adding pending transactions:', error);
@@ -243,8 +280,8 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
     if (autoMapped.length === 0) return;
 
     try {
-      // Add all to expenses
-      await fetch('/api/drive', {
+      // Add to expenses
+      const response = await fetch('/api/drive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -258,8 +295,57 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         }),
       });
 
-      // Update pending transactions (remove confirmed ones)
-      const remaining = state.pendingTransactions.filter((t) => t.status !== 'auto-mapped');
+      if (!response.ok) {
+        const errorData = await response.json();
+        console.error('Failed to save expenses:', errorData);
+        throw new Error(errorData.error || 'Failed to save expenses');
+      }
+
+      // Delete from import sheet
+      const remaining = state.pendingTransactions.filter((t) => t.status !== 'auto-mapped' || !t.category);
+      await fetch('/api/drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'pending-update-all', data: remaining, year: new Date().getFullYear() }),
+      });
+
+      dispatch({ type: 'SET_PENDING', payload: remaining });
+      sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify(remaining));
+    } catch (error) {
+      console.error('Error confirming all auto-mapped:', error);
+      throw error;
+    }
+  }, [session, state.pendingTransactions]);
+
+  // Save manually categorized uncategorized transactions directly to expenses
+  const saveMappedUncategorized = useCallback(async (): Promise<number> => {
+    if (!session) return 0;
+
+    // Find uncategorized transactions that have a category set (manually mapped)
+    const mappedUncategorized = state.pendingTransactions.filter(
+      (t) => t.status === 'uncategorized' && t.category && !t.matchedRuleId
+    );
+    if (mappedUncategorized.length === 0) return 0;
+
+    try {
+      // Add all to expenses
+      await fetch('/api/drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'expenses-batch',
+          data: mappedUncategorized.map((t) => ({
+            amount: t.amount,
+            date: t.date,
+            category: t.category,
+            description: t.description,
+          })),
+        }),
+      });
+
+      // Remove saved transactions from pending
+      const mappedIds = new Set(mappedUncategorized.map((t) => t.id));
+      const remaining = state.pendingTransactions.filter((t) => !mappedIds.has(t.id));
       const year = new Date().getFullYear();
 
       await fetch('/api/drive', {
@@ -270,8 +356,10 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
 
       dispatch({ type: 'SET_PENDING', payload: remaining });
       sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify(remaining));
+
+      return mappedUncategorized.length;
     } catch (error) {
-      console.error('Error confirming all auto-mapped:', error);
+      console.error('Error saving mapped uncategorized:', error);
       throw error;
     }
   }, [session, state.pendingTransactions]);
@@ -283,10 +371,12 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
       const transaction = state.pendingTransactions.find((t) => t.id === id);
       if (!transaction) return;
 
+      // Keep status as uncategorized for manual categorization
+      // Only auto-mapped status is set by rules
       const updated: PendingTransaction = {
         ...transaction,
         category: categoryId,
-        status: 'auto-mapped', // Moves to auto-mapped once categorized
+        // Don't change status - manual categorization stays in uncategorized
       };
 
       try {
@@ -413,6 +503,12 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
           body: JSON.stringify({ type: 'rule', data: rule, year }),
         });
 
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Rule creation failed:', errorData);
+          throw new Error(errorData.error || 'Failed to create rule');
+        }
+
         const result = await response.json();
         if (result.rule) {
           dispatch({ type: 'ADD_RULE', payload: result.rule });
@@ -434,6 +530,9 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
           });
 
           return result.rule;
+        } else {
+          console.error('Rule creation returned no rule:', result);
+          throw new Error('Rule creation returned no rule');
         }
       } catch (error) {
         console.error('Error adding rule:', error);
@@ -451,11 +550,17 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         const year = new Date().getFullYear();
         const newRules = state.rules.map((r) => (r.id === rule.id ? rule : r));
 
-        await fetch('/api/drive', {
+        const response = await fetch('/api/drive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'rules-save', data: newRules, year }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Rule update failed:', errorData);
+          throw new Error(errorData.error || 'Failed to update rule');
+        }
 
         dispatch({ type: 'UPDATE_RULE', payload: rule });
         sessionStorage.setItem(RULES_CACHE_KEY, JSON.stringify(newRules));
@@ -486,11 +591,17 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         const year = new Date().getFullYear();
         const newRules = state.rules.filter((r) => r.id !== id);
 
-        await fetch('/api/drive', {
+        const response = await fetch('/api/drive', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ type: 'rules-save', data: newRules, year }),
         });
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          console.error('Rule deletion failed:', errorData);
+          throw new Error(errorData.error || 'Failed to delete rule');
+        }
 
         dispatch({ type: 'DELETE_RULE', payload: id });
         sessionStorage.setItem(RULES_CACHE_KEY, JSON.stringify(newRules));
@@ -522,6 +633,7 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         addPendingTransactions,
         confirmTransaction,
         confirmAllAutoMapped,
+        saveMappedUncategorized,
         updateTransactionCategory,
         ignoreTransaction,
         unignoreTransaction,

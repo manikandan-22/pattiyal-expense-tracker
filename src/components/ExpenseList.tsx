@@ -9,7 +9,7 @@ import { SkeletonList } from './SkeletonList';
 import { cn, groupExpensesByDay } from '@/lib/utils';
 import { listItemVariants, smoothSpring } from '@/lib/animations';
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 100;
 
 interface ExpenseListProps {
   expenses: Expense[];
