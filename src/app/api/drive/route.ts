@@ -26,6 +26,62 @@ import { Expense, Category, PendingTransaction, TransactionRule } from '@/types'
 import { v4 as uuidv4 } from 'uuid';
 import { extractYearFromId } from '@/lib/id-utils';
 
+async function callLLMNonStreaming(prompt: string): Promise<string> {
+  const ollamaUrl = process.env.OLLAMA_BASE_URL;
+  const ollamaModel = process.env.OLLAMA_MODEL;
+
+  if (ollamaUrl && ollamaModel) {
+    try {
+      let endpoint = ollamaUrl.replace(/\/+$/, '');
+      endpoint = endpoint.endsWith('/api') ? `${endpoint}/chat` : `${endpoint}/api/chat`;
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (process.env.OLLAMA_API_KEY) headers['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: ollamaModel,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+          format: 'json',
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.message?.content || '{"suggestions":[]}';
+      }
+    } catch (e) {
+      console.error('Ollama failed for ai-categorize:', e);
+    }
+  }
+
+  const geminiKey = process.env.GEMINI_API_KEY;
+  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+
+  if (geminiKey) {
+    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${geminiKey}`,
+      },
+      body: JSON.stringify({
+        model: geminiModel,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '{"suggestions":[]}';
+    }
+    throw new Error(`Gemini API error: ${res.status}`);
+  }
+
+  throw new Error('No LLM provider configured');
+}
+
 // GET - Fetch expenses or categories
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -171,6 +227,47 @@ export async function POST(request: NextRequest) {
       const spreadsheetId = await getOrCreateSpreadsheet(session.accessToken, year);
       await saveRules(session.accessToken, spreadsheetId, data);
       return NextResponse.json({ success: true });
+    }
+
+    if (type === 'ai-categorize') {
+      const { transactions, recentExpenses, categories: catList } = data;
+      const categoryList = (catList as Array<{ id: string; name: string }>)
+        .map(c => `- "${c.id}": ${c.name}`).join('\n');
+      const recentList = (recentExpenses as Array<{ description: string; amount: number; category: string }>)
+        .slice(0, 50)
+        .map(e => `- "${e.description}" → ${e.category} ($${e.amount})`)
+        .join('\n');
+      const transactionList = (transactions as Array<{ id: string; description: string; amount: number }>)
+        .map((t, i) => `${i + 1}. [id: "${t.id}"] "${t.description}" - $${t.amount}`)
+        .join('\n');
+
+      const prompt = `You are an expense categorization assistant. Based on the user's recent spending patterns, suggest categories for uncategorized transactions.
+
+Available categories:
+${categoryList}
+
+Recent expenses (for context):
+${recentList || 'No recent expenses available.'}
+
+Transactions to categorize:
+${transactionList}
+
+Respond with ONLY a JSON object containing a "suggestions" array. Each item must have "id" (the transaction ID exactly as shown in brackets) and "categoryId" (one of the available category IDs). Only include transactions you're confident about.
+Example: {"suggestions": [{"id": "abc123", "categoryId": "groceries"}]}`;
+
+      try {
+        const content = await callLLMNonStreaming(prompt);
+        const parsed = JSON.parse(content);
+        // Map the response to expected format
+        const suggestions = (parsed.suggestions || []).map((s: { id: string; categoryId: string }) => ({
+          transactionId: s.id,
+          categoryId: s.categoryId,
+        }));
+        return NextResponse.json({ suggestions });
+      } catch (error) {
+        console.error('AI categorize error:', error);
+        return NextResponse.json({ suggestions: [] });
+      }
     }
 
     if (type === 'move-to-expenses') {

@@ -46,8 +46,7 @@ const SETTINGS_SHEET = 'Settings';
 const getExpensesSheetName = (year: number) => `Expenses ${year}`;
 
 // Sheet names for import spreadsheet
-const AUTO_MAPPED_SHEET = 'AutoMapped';
-const UNCATEGORIZED_SHEET = 'Uncategorized';
+const PENDING_SHEET = 'Pending';
 const IGNORED_SHEET = 'Ignored';
 
 // Spreadsheet names
@@ -56,7 +55,7 @@ const IMPORT_SPREADSHEET_NAME = 'Expense Tracker - Import';
 const LEGACY_SPREADSHEET_NAME = 'Expense Tracker Data';
 
 // Transaction columns for import sheets
-const TRANSACTION_HEADERS = ['id', 'date', 'description', 'amount', 'category', 'matchedRuleId', 'createdAt'];
+const TRANSACTION_HEADERS = ['id', 'date', 'description', 'amount', 'category', 'matchedRuleId', 'createdAt', 'source', 'categorySource', 'status'];
 
 export function createSheetsClient(accessToken: string): sheets_v4.Sheets {
   const auth = new google.auth.OAuth2();
@@ -285,13 +284,7 @@ export async function getOrCreateImportSpreadsheet(accessToken: string): Promise
       sheets: [
         {
           properties: {
-            title: AUTO_MAPPED_SHEET,
-            gridProperties: { frozenRowCount: 1 },
-          },
-        },
-        {
-          properties: {
-            title: UNCATEGORIZED_SHEET,
+            title: PENDING_SHEET,
             gridProperties: { frozenRowCount: 1 },
           },
         },
@@ -308,10 +301,10 @@ export async function getOrCreateImportSpreadsheet(accessToken: string): Promise
   const spreadsheetId = createResponse.data.spreadsheetId!;
 
   // Add headers to all import sheets
-  for (const sheetName of [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET]) {
+  for (const sheetName of [PENDING_SHEET, IGNORED_SHEET]) {
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheetName}!A1:G1`,
+      range: `${sheetName}!A1:J1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [TRANSACTION_HEADERS],
@@ -354,7 +347,7 @@ async function ensureImportSheet(
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${sheetName}!A1:G1`,
+      range: `${sheetName}!A1:J1`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [TRANSACTION_HEADERS],
@@ -867,14 +860,7 @@ export async function updateSettings(
 // ============================================
 
 function getSheetNameForStatus(status: PendingTransaction['status']): string {
-  switch (status) {
-    case 'auto-mapped':
-      return AUTO_MAPPED_SHEET;
-    case 'ignored':
-      return IGNORED_SHEET;
-    default:
-      return UNCATEGORIZED_SHEET;
-  }
+  return status === 'ignored' ? IGNORED_SHEET : PENDING_SHEET;
 }
 
 function transactionToRow(t: PendingTransaction): (string | number)[] {
@@ -886,19 +872,24 @@ function transactionToRow(t: PendingTransaction): (string | number)[] {
     t.category || '',
     t.matchedRuleId || '',
     t.createdAt,
+    t.source || '',
+    t.categorySource || '',
+    t.status,
   ];
 }
 
-function rowToTransaction(row: string[], status: PendingTransaction['status']): PendingTransaction {
+function rowToTransaction(row: string[], fallbackStatus: PendingTransaction['status']): PendingTransaction {
   return {
     id: row[0] || '',
     date: row[1] || '',
     description: row[2] || '',
     amount: parseFloat(row[3]) || 0,
     category: row[4] || undefined,
-    status,
+    status: (row[9] as PendingTransaction['status']) || fallbackStatus,
     matchedRuleId: row[5] || undefined,
     createdAt: row[6] || '',
+    source: row[7] || undefined,
+    categorySource: (row[8] as PendingTransaction['categorySource']) || undefined,
   };
 }
 
@@ -910,10 +901,9 @@ export async function getPendingTransactions(
   const sheets = createSheetsClient(accessToken);
   const allTransactions: PendingTransaction[] = [];
 
-  const sheetConfigs: { name: string; status: PendingTransaction['status'] }[] = [
-    { name: AUTO_MAPPED_SHEET, status: 'auto-mapped' },
-    { name: UNCATEGORIZED_SHEET, status: 'uncategorized' },
-    { name: IGNORED_SHEET, status: 'ignored' },
+  const sheetConfigs: { name: string; fallbackStatus: PendingTransaction['status'] }[] = [
+    { name: PENDING_SHEET, fallbackStatus: 'uncategorized' },
+    { name: IGNORED_SHEET, fallbackStatus: 'ignored' },
   ];
 
   for (const config of sheetConfigs) {
@@ -922,12 +912,12 @@ export async function getPendingTransactions(
 
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: importSpreadsheetId,
-        range: `${config.name}!A2:G`,
+        range: `${config.name}!A2:J`,
       });
 
       const rows = response.data.values;
       if (rows && rows.length > 0) {
-        const transactions = rows.map((row) => rowToTransaction(row, config.status));
+        const transactions = rows.map((row) => rowToTransaction(row, config.fallbackStatus));
         allTransactions.push(...transactions);
       }
     } catch (error) {
@@ -963,7 +953,7 @@ export async function addPendingTransactions(
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: importSpreadsheetId,
-      range: `${sheetName}!A2:G`,
+      range: `${sheetName}!A2:J`,
       valueInputOption: 'RAW',
       insertDataOption: 'INSERT_ROWS',
       requestBody: { values },
@@ -981,7 +971,7 @@ export async function updatePendingTransaction(
 
   // We need to find which sheet the transaction is currently in
   // and move it if the status changed
-  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET];
+  const allSheets = [PENDING_SHEET, IGNORED_SHEET];
   const targetSheet = getSheetNameForStatus(transaction.status);
 
   for (const sheetName of allSheets) {
@@ -1003,7 +993,7 @@ export async function updatePendingTransaction(
         const sheetRow = rowIndex + 1;
         await sheets.spreadsheets.values.update({
           spreadsheetId: importSpreadsheetId,
-          range: `${sheetName}!A${sheetRow}:G${sheetRow}`,
+          range: `${sheetName}!A${sheetRow}:J${sheetRow}`,
           valueInputOption: 'RAW',
           requestBody: {
             values: [transactionToRow(transaction)],
@@ -1040,7 +1030,7 @@ export async function updatePendingTransaction(
         await ensureImportSheet(sheets, importSpreadsheetId, targetSheet);
         await sheets.spreadsheets.values.append({
           spreadsheetId: importSpreadsheetId,
-          range: `${targetSheet}!A2:G`,
+          range: `${targetSheet}!A2:I`,
           valueInputOption: 'RAW',
           insertDataOption: 'INSERT_ROWS',
           requestBody: {
@@ -1063,9 +1053,7 @@ export async function deletePendingTransaction(
   const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
 
-  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET, IGNORED_SHEET];
-
-  for (const sheetName of allSheets) {
+  for (const sheetName of [PENDING_SHEET, IGNORED_SHEET]) {
     try {
       const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
       const sheet = spreadsheet.data.sheets?.find(
@@ -1116,10 +1104,9 @@ export async function updateAllPendingTransactions(
   const importSpreadsheetId = await getOrCreateImportSpreadsheet(accessToken);
   const sheets = createSheetsClient(accessToken);
 
-  // Group transactions by status/sheet
+  // Group transactions by sheet (pending vs ignored)
   const bySheet: Record<string, PendingTransaction[]> = {
-    [AUTO_MAPPED_SHEET]: [],
-    [UNCATEGORIZED_SHEET]: [],
+    [PENDING_SHEET]: [],
     [IGNORED_SHEET]: [],
   };
 
@@ -1174,7 +1161,7 @@ export async function updateAllPendingTransactions(
 
       await sheets.spreadsheets.values.append({
         spreadsheetId: importSpreadsheetId,
-        range: `${sheetName}!A2:G`,
+        range: `${sheetName}!A2:J`,
         valueInputOption: 'RAW',
         insertDataOption: 'INSERT_ROWS',
         requestBody: { values },
@@ -1201,39 +1188,33 @@ export async function moveTransactionsToExpenses(
   const transactionsToMove: PendingTransaction[] = [];
   const idsToDelete: { sheetName: string; rowIndex: number; sheetId: number }[] = [];
 
-  const allSheets = [AUTO_MAPPED_SHEET, UNCATEGORIZED_SHEET];
-
-  for (const sheetName of allSheets) {
-    try {
-      const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
-      const sheet = spreadsheet.data.sheets?.find(
-        (s) => s.properties?.title === sheetName
-      );
-      if (!sheet?.properties?.sheetId) continue;
-
+  try {
+    const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId: importSpreadsheetId });
+    const sheet = spreadsheet.data.sheets?.find(
+      (s) => s.properties?.title === PENDING_SHEET
+    );
+    if (sheet?.properties?.sheetId) {
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: importSpreadsheetId,
-        range: `${sheetName}!A2:G`,
+        range: `${PENDING_SHEET}!A2:J`,
       });
 
       const rows = response.data.values;
-      if (!rows) continue;
-
-      const status = sheetName === AUTO_MAPPED_SHEET ? 'auto-mapped' : 'uncategorized';
-
-      rows.forEach((row, idx) => {
-        if (transactionIds.includes(row[0])) {
-          transactionsToMove.push(rowToTransaction(row, status));
-          idsToDelete.push({
-            sheetName,
-            rowIndex: idx + 2, // +2 for header and 1-based index
-            sheetId: sheet.properties!.sheetId!,
-          });
-        }
-      });
-    } catch {
-      continue;
+      if (rows) {
+        rows.forEach((row, idx) => {
+          if (transactionIds.includes(row[0])) {
+            transactionsToMove.push(rowToTransaction(row, 'uncategorized'));
+            idsToDelete.push({
+              sheetName: PENDING_SHEET,
+              rowIndex: idx + 2,
+              sheetId: sheet.properties!.sheetId!,
+            });
+          }
+        });
+      }
     }
+  } catch (error) {
+    console.error('Error reading pending sheet for move:', error);
   }
 
   if (transactionsToMove.length === 0) return;

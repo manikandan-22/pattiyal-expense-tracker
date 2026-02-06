@@ -119,6 +119,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
   const [newCategoryColor, setNewCategoryColor] = useState(CATEGORY_COLORS[0]);
   const [isCreatingCategory, setIsCreatingCategory] = useState(false);
 
+  const [csvFileName, setCsvFileName] = useState('');
   const csvInputRef = useRef<HTMLInputElement>(null);
 
   const resetWizard = useCallback(() => {
@@ -128,6 +129,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
     setColumnMapping({ date: -1, description: -1, amount: -1, category: -1 });
     setCsvCategories([]);
     setCategoryMapping({});
+    setCsvFileName('');
     setIsProcessing(false);
   }, []);
 
@@ -139,6 +141,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
   // CSV file upload handler
   const handleCsvSelect = useCallback(async (file: File) => {
     setIsProcessing(true);
+    setCsvFileName(file.name.replace(/\.csv$/i, ''));
     try {
       const content = await file.text();
       const { headers, rows } = parseCSV(content);
@@ -285,6 +288,7 @@ export function ImportWizard({ open, onClose }: ImportWizardProps) {
           amount: t.amount,
           category,
           status: 'uncategorized' as const,
+          source: csvFileName || undefined,
         };
       });
 

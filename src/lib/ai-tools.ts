@@ -164,6 +164,7 @@ export const TOOL_DEFINITIONS = [
             },
             description: 'Array of transactions extracted from the statement',
           },
+          source: { type: 'string', description: 'A friendly description of the import source, e.g. "December 2026 HDFC Credit Card Statement"' },
         },
         required: ['transactions'],
       },
@@ -358,6 +359,7 @@ export async function executeTool(
           description: string;
           category?: string;
         }>;
+        const source = args.source as string | undefined;
         const now = new Date().toISOString();
         const pending: PendingTransaction[] = items.map((item) => ({
           id: `${new Date(item.date).getFullYear()}-${uuidv4()}`,
@@ -366,6 +368,7 @@ export async function executeTool(
           description: item.description,
           category: item.category || undefined,
           status: item.category ? 'auto-mapped' as const : 'uncategorized' as const,
+          source: source || undefined,
           createdAt: now,
         }));
         await addPendingTransactions(accessToken, spreadsheetId, pending);

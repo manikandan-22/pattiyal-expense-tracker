@@ -6,7 +6,6 @@ import { motion } from 'framer-motion';
 import {
   Upload,
   Check,
-  X,
   EyeOff,
   Eye,
   Trash2,
@@ -14,7 +13,7 @@ import {
   Settings2,
   CheckSquare,
   Square,
-  Save,
+  Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -36,44 +35,56 @@ import { usePendingTransactions } from '@/context/TransactionsContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/useToast';
 import { ImportWizard } from '@/components/ImportWizard';
-import { PendingTransaction, Category, CurrencyCode } from '@/types';
+import { PendingTransaction, Category, CurrencyCode, CategorySource } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { bouncySpring } from '@/lib/animations';
 
-type TabId = 'auto-mapped' | 'uncategorized' | 'ignored';
+function CategoryBadge({ source }: { source?: CategorySource }) {
+  if (!source) return null;
+  const config: Record<string, { bg: string; text: string; label: string }> = {
+    rule: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-700 dark:text-blue-300', label: 'Rule' },
+    ai: { bg: 'bg-purple-100 dark:bg-purple-900/30', text: 'text-purple-700 dark:text-purple-300', label: 'AI' },
+    manual: { bg: 'bg-gray-100 dark:bg-gray-800', text: 'text-gray-600 dark:text-gray-400', label: 'Manual' },
+  };
+  const c = config[source];
+  if (!c) return null;
+  return (
+    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium whitespace-nowrap ${c.bg} ${c.text}`}>
+      {c.label}
+    </span>
+  );
+}
 
 function TransactionRow({
   transaction,
   categories,
   currency,
+  localCategory,
   isSelected,
   onToggleSelect,
   onCategoryChange,
   onIgnore,
   onUnignore,
   onDelete,
-  onConfirm,
-  showCheckbox,
-  showCategoryPicker,
-  showUnignore,
-  showConfirm,
+  isIgnoredView,
 }: {
   transaction: PendingTransaction;
   categories: Category[];
   currency: CurrencyCode;
+  localCategory?: string;
   isSelected: boolean;
   onToggleSelect: () => void;
-  onCategoryChange?: (categoryId: string) => void;
-  onIgnore?: () => void;
-  onUnignore?: () => void;
-  onDelete?: () => void;
-  onConfirm?: () => void;
-  showCheckbox?: boolean;
-  showCategoryPicker?: boolean;
-  showUnignore?: boolean;
-  showConfirm?: boolean;
+  onCategoryChange: (categoryId: string) => void;
+  onIgnore: () => void;
+  onUnignore: () => void;
+  onDelete: () => void;
+  isIgnoredView: boolean;
 }) {
-  const category = categories.find((c) => c.id === transaction.category);
+  const finalCategory = localCategory || transaction.category;
+  const category = categories.find((c) => c.id === finalCategory);
+  const effectiveSource: CategorySource | undefined = localCategory
+    ? 'manual'
+    : transaction.categorySource;
 
   return (
     <div
@@ -81,7 +92,7 @@ function TransactionRow({
         isSelected ? 'bg-accent/5' : ''
       }`}
     >
-      {showCheckbox && (
+      {!isIgnoredView && (
         <button onClick={onToggleSelect} className="p-1 hover:bg-surface rounded">
           {isSelected ? (
             <CheckSquare className="w-4 h-4 text-accent" />
@@ -90,62 +101,79 @@ function TransactionRow({
           )}
         </button>
       )}
-      <span className="text-text-muted w-20 flex-shrink-0 text-xs">{formatDate(transaction.date)}</span>
-      <span className="flex-1 text-text-primary truncate text-xs">{transaction.description}</span>
+      <span className="text-text-muted w-20 flex-shrink-0 text-xs">
+        {formatDate(transaction.date)}
+      </span>
+      <div className="flex-1 min-w-0">
+        <span className="text-xs text-text-primary truncate block">
+          {transaction.description}
+        </span>
+        {transaction.source && (
+          <span className="text-[10px] text-text-muted truncate block">
+            {transaction.source}
+          </span>
+        )}
+      </div>
       <span className="text-text-primary font-medium w-16 text-right flex-shrink-0 text-xs">
         {formatCurrency(transaction.amount, currency)}
       </span>
 
-      {showCategoryPicker ? (
-        <Select
-          value={transaction.category || '_none'}
-          onValueChange={(v) => onCategoryChange?.(v === '_none' ? '' : v)}
-        >
-          <SelectTrigger className="h-7 w-24 text-xs flex-shrink-0">
-            <SelectValue>
-              {category ? (
-                <div className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: category.color }} />
-                  <span className="truncate text-xs">{category.name}</span>
-                </div>
-              ) : (
-                <span className="text-text-muted text-xs">Select</span>
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_none">None</SelectItem>
-            {categories.map((cat) => (
-              <SelectItem key={cat.id} value={cat.id}>
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: cat.color }} />
-                  <span>{cat.name}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      ) : category ? (
-        <div className="flex items-center gap-1 w-24 flex-shrink-0">
-          <div className="w-2 h-2 rounded-full" style={{ backgroundColor: category.color }} />
-          <span className="text-xs text-text-secondary truncate">{category.name}</span>
+      {isIgnoredView ? (
+        <div className="w-28 flex-shrink-0">
+          {category ? (
+            <div className="flex items-center gap-1">
+              <div
+                className="w-2 h-2 rounded-full flex-shrink-0"
+                style={{ backgroundColor: category.color }}
+              />
+              <span className="text-xs text-text-secondary truncate">{category.name}</span>
+            </div>
+          ) : (
+            <span className="text-xs text-text-muted">&mdash;</span>
+          )}
         </div>
       ) : (
-        <span className="w-24 flex-shrink-0" />
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <Select
+            value={finalCategory || '_none'}
+            onValueChange={(v) => onCategoryChange(v === '_none' ? '' : v)}
+          >
+            <SelectTrigger className="h-7 w-24 text-xs">
+              <SelectValue>
+                {category ? (
+                  <div className="flex items-center gap-1">
+                    <div
+                      className="w-2 h-2 rounded-full flex-shrink-0"
+                      style={{ backgroundColor: category.color }}
+                    />
+                    <span className="truncate text-xs">{category.name}</span>
+                  </div>
+                ) : (
+                  <span className="text-text-muted text-xs">Select</span>
+                )}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="_none">None</SelectItem>
+              {categories.map((cat) => (
+                <SelectItem key={cat.id} value={cat.id}>
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: cat.color }}
+                    />
+                    <span>{cat.name}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {effectiveSource && <CategoryBadge source={effectiveSource} />}
+        </div>
       )}
 
       <div className="flex items-center gap-1 flex-shrink-0">
-        {showConfirm && transaction.category && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={onConfirm}
-            className="h-6 w-6 p-0 text-green-600 hover:text-green-700 hover:bg-green-50"
-          >
-            <Check className="w-3 h-3" />
-          </Button>
-        )}
-        {showUnignore ? (
+        {isIgnoredView ? (
           <Button size="sm" variant="ghost" onClick={onUnignore} className="h-6 w-6 p-0">
             <Eye className="w-3 h-3" />
           </Button>
@@ -167,7 +195,6 @@ function TransactionRow({
   );
 }
 
-// Bulk Category Dialog
 function BulkCategoryDialog({
   open,
   onClose,
@@ -197,7 +224,10 @@ function BulkCategoryDialog({
             {categories.map((cat) => (
               <SelectItem key={cat.id} value={cat.id}>
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.color }} />
+                  <div
+                    className="w-3 h-3 rounded-full"
+                    style={{ backgroundColor: cat.color }}
+                  />
                   <span>{cat.name}</span>
                 </div>
               </SelectItem>
@@ -205,8 +235,16 @@ function BulkCategoryDialog({
           </SelectContent>
         </Select>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => { onApply(categoryId); onClose(); }} disabled={!categoryId}>
+          <Button variant="outline" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              onApply(categoryId);
+              onClose();
+            }}
+            disabled={!categoryId}
+          >
             Apply to {selectedCount}
           </Button>
         </DialogFooter>
@@ -218,63 +256,59 @@ function BulkCategoryDialog({
 export function TransactionsPage() {
   const router = useRouter();
   const { categories } = useCategories();
-  const { refreshExpenses } = useExpenses();
+  const { state: expenseState, refreshExpenses } = useExpenses();
   const {
     pendingTransactions,
     rules,
     isLoading,
-    confirmTransaction,
-    confirmAllAutoMapped,
     ignoreTransaction,
     unignoreTransaction,
     deleteTransaction,
+    aiCategorize,
     refreshPendingTransactions,
   } = usePendingTransactions();
   const { settings } = useSettings();
   const { toast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<TabId>('uncategorized');
+  const [showIgnored, setShowIgnored] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [bulkCategoryOpen, setBulkCategoryOpen] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [savingMapped, setSavingMapped] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [aiSuggesting, setAiSuggesting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 100;
 
-  // Local UI state for category selections (not saved until Save button clicked)
+  // Local category overrides (not persisted until Confirm)
   const [localCategories, setLocalCategories] = useState<Map<string, string>>(new Map());
 
-  // Split transactions by status
-  const { autoMapped, uncategorized, ignored } = useMemo(() => {
-    const auto: PendingTransaction[] = [];
-    const uncat: PendingTransaction[] = [];
+  // Split transactions into active (pending) and ignored
+  const { active, ignored } = useMemo(() => {
+    const act: PendingTransaction[] = [];
     const ign: PendingTransaction[] = [];
-
     for (const t of pendingTransactions) {
-      if (t.status === 'ignored') {
-        ign.push(t);
-      } else if (t.status === 'auto-mapped') {
-        auto.push(t);
-      } else {
-        uncat.push(t);
-      }
+      if (t.status === 'ignored') ign.push(t);
+      else act.push(t);
     }
-
-    return { autoMapped: auto, uncategorized: uncat, ignored: ign };
+    return { active: act, ignored: ign };
   }, [pendingTransactions]);
 
-  // Count mapped in uncategorized (have local category selection)
-  const mappedInUncategorized = useMemo(() => {
-    return uncategorized.filter((t) => localCategories.has(t.id)).length;
-  }, [uncategorized, localCategories]);
-
-  const fullList =
-    activeTab === 'auto-mapped' ? autoMapped : activeTab === 'uncategorized' ? uncategorized : ignored;
-
-  // Pagination
+  const fullList = showIgnored ? ignored : active;
   const totalPages = Math.ceil(fullList.length / PAGE_SIZE);
-  const currentList = fullList.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const currentList = fullList.slice(
+    (currentPage - 1) * PAGE_SIZE,
+    currentPage * PAGE_SIZE
+  );
 
+  // Count categorized (from any source or local override)
+  const categorizedCount = useMemo(() => {
+    return active.filter((t) => localCategories.get(t.id) || t.category).length;
+  }, [active, localCategories]);
+
+  const uncategorizedCount = active.length - categorizedCount;
+  const totalAmount = fullList.reduce((sum, t) => sum + t.amount, 0);
+
+  // Selection
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -284,148 +318,173 @@ export function TransactionsPage() {
     });
   }, []);
 
-  const selectAll = useCallback(() => {
-    setSelectedIds(new Set(currentList.map((t) => t.id)));
-  }, [currentList]);
+  const selectAll = useCallback(
+    () => setSelectedIds(new Set(currentList.map((t) => t.id))),
+    [currentList]
+  );
 
-  const clearSelection = useCallback(() => {
-    setSelectedIds(new Set());
+  const clearSelection = useCallback(() => setSelectedIds(new Set()), []);
+
+  // Local category change
+  const handleCategoryChange = useCallback((id: string, categoryId: string) => {
+    setLocalCategories((prev) => {
+      const next = new Map(prev);
+      if (categoryId) next.set(id, categoryId);
+      else next.delete(id);
+      return next;
+    });
   }, []);
 
-  const handleConfirm = async (id: string) => {
-    try {
-      await confirmTransaction(id);
-      // Refresh expense list so home page shows the new expense
-      await refreshExpenses();
-      toast({ title: 'Added', description: 'Transaction saved as expense', variant: 'success' });
-    } catch {
-      toast({ title: 'Error', description: 'Failed to confirm transaction', variant: 'destructive' });
-    }
+  // Bulk category
+  const handleBulkCategory = (categoryId: string) => {
+    setLocalCategories((prev) => {
+      const next = new Map(prev);
+      Array.from(selectedIds).forEach(id => next.set(id, categoryId));
+      return next;
+    });
+    toast({
+      title: 'Updated',
+      description: `${selectedIds.size} transactions categorized`,
+      variant: 'success',
+    });
+    clearSelection();
   };
 
-  const handleConfirmAll = async () => {
-    if (autoMapped.length === 0) return;
-    setSavingMapped(true);
+  // AI Suggest
+  const handleAiSuggest = async () => {
+    const toSuggest = active.filter(
+      (t) => !t.category && !localCategories.has(t.id) && t.categorySource !== 'rule'
+    );
+    if (toSuggest.length === 0) {
+      toast({
+        title: 'All categorized',
+        description: 'No uncategorized transactions to suggest for',
+      });
+      return;
+    }
+
+    setAiSuggesting(true);
     try {
-      await confirmAllAutoMapped();
-      // Refresh expense list so home page shows the new expenses
-      await refreshExpenses();
-      toast({ title: 'Added', description: `${autoMapped.length} transactions saved as expenses`, variant: 'success' });
+      const twoMonthsAgo = new Date();
+      twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+      const recentExpenses = expenseState.expenses
+        .filter((e) => new Date(e.date) >= twoMonthsAgo)
+        .slice(0, 50)
+        .map((e) => ({
+          description: e.description,
+          amount: e.amount,
+          category: e.category,
+        }));
+
+      const response = await fetch('/api/drive', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'ai-categorize',
+          data: {
+            transactions: toSuggest.map((t) => ({
+              id: t.id,
+              description: t.description,
+              amount: t.amount,
+            })),
+            recentExpenses,
+            categories: categories.map((c) => ({ id: c.id, name: c.name })),
+          },
+        }),
+      });
+
+      if (!response.ok) throw new Error('AI categorization failed');
+      const result = await response.json();
+
+      if (result.suggestions?.length > 0) {
+        await aiCategorize(result.suggestions);
+        toast({
+          title: 'AI Suggestions',
+          description: `Categorized ${result.suggestions.length} transactions`,
+          variant: 'success',
+        });
+      } else {
+        toast({
+          title: 'No suggestions',
+          description: 'AI could not categorize these transactions',
+        });
+      }
     } catch {
-      toast({ title: 'Error', description: 'Failed to confirm transactions', variant: 'destructive' });
+      toast({
+        title: 'Error',
+        description: 'AI categorization failed',
+        variant: 'destructive',
+      });
     } finally {
-      setSavingMapped(false);
+      setAiSuggesting(false);
     }
   };
 
-  // Save manually mapped uncategorized transactions directly to expenses
-  const handleSaveMapped = async () => {
-    const entries = Array.from(localCategories.entries());
-    if (entries.length === 0) {
-      toast({ title: 'Nothing to save', description: 'Select categories first', variant: 'destructive' });
-      return;
-    }
+  // Confirm All categorized
+  const handleConfirmAll = async () => {
+    const toConfirm = active.filter((t) => {
+      const finalCat = localCategories.get(t.id) || t.category;
+      return !!finalCat;
+    });
+    if (toConfirm.length === 0) return;
 
-    // Get transactions that have local category selections
-    const toSave = pendingTransactions.filter((t) => localCategories.has(t.id));
-    if (toSave.length === 0) {
-      toast({ title: 'Nothing to save', description: 'No matching transactions', variant: 'destructive' });
-      return;
-    }
-
-    setSavingMapped(true);
+    setSaving(true);
     try {
-      // Batch save to expenses API
-      const expensesData = toSave.map((t) => ({
+      const expensesData = toConfirm.map((t) => ({
         amount: t.amount,
         date: t.date,
-        category: localCategories.get(t.id) || '',
-        description: t.description || '',
+        category: localCategories.get(t.id) || t.category!,
+        description: t.description,
       }));
-
-      // Validate data
-      const invalidItems = expensesData.filter((e) => !e.date || !e.category || e.amount === undefined);
-      if (invalidItems.length > 0) {
-        toast({ title: 'Error', description: 'Some transactions have missing data', variant: 'destructive' });
-        setSavingMapped(false);
-        return;
-      }
 
       const response = await fetch('/api/drive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'expenses-batch', data: expensesData }),
       });
+      if (!response.ok) throw new Error('Failed to save');
 
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.error || 'Failed to save');
-      }
-
-      // Delete saved transactions from pending
-      const year = new Date().getFullYear();
-      const savedIds = new Set(toSave.map((t) => t.id));
-      const remaining = pendingTransactions.filter((t) => !savedIds.has(t.id));
-
+      const confirmedIds = new Set(toConfirm.map((t) => t.id));
+      const remaining = pendingTransactions.filter((t) => !confirmedIds.has(t.id));
       await fetch('/api/drive', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'pending-update-all', data: remaining, year }),
+        body: JSON.stringify({
+          type: 'pending-update-all',
+          data: remaining,
+          year: new Date().getFullYear(),
+        }),
       });
 
-      // Clear local state and refresh from server
       setLocalCategories(new Map());
-      // Refresh both pending transactions and expenses list
-      await Promise.all([
-        refreshPendingTransactions(),
-        refreshExpenses(),
-      ]);
-      toast({ title: 'Saved', description: `${toSave.length} expenses saved`, variant: 'success' });
-    } catch (e) {
-      toast({ title: 'Error', description: e instanceof Error ? e.message : 'Failed to save expenses', variant: 'destructive' });
+      await Promise.all([refreshPendingTransactions(), refreshExpenses()]);
+      toast({
+        title: 'Confirmed',
+        description: `${toConfirm.length} expenses saved`,
+        variant: 'success',
+      });
+    } catch {
+      toast({
+        title: 'Error',
+        description: 'Failed to confirm transactions',
+        variant: 'destructive',
+      });
     } finally {
-      setSavingMapped(false);
+      setSaving(false);
     }
   };
 
-  // Update local state only - no API call until Save
-  const handleCategoryChange = useCallback((id: string, categoryId: string) => {
-    setLocalCategories((prev) => {
-      const next = new Map(prev);
-      if (categoryId) {
-        next.set(id, categoryId);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
-  }, []);
-
-  // Update local state only for bulk categorization
-  const handleBulkCategory = (categoryId: string) => {
-    const selectedArray = Array.from(selectedIds);
-    setLocalCategories((prev) => {
-      const next = new Map(prev);
-      for (const id of selectedArray) {
-        next.set(id, categoryId);
-      }
-      return next;
-    });
-    toast({ title: 'Updated', description: `${selectedArray.length} transactions categorized`, variant: 'success' });
-    clearSelection();
-  };
-
+  // Ignore / Unignore / Delete
   const handleIgnore = async (id: string) => {
     try {
       await ignoreTransaction(id);
-      // Clear local category for this transaction
       setLocalCategories((prev) => {
         const next = new Map(prev);
         next.delete(id);
         return next;
       });
     } catch {
-      toast({ title: 'Error', description: 'Failed to ignore transaction', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to ignore', variant: 'destructive' });
     }
   };
 
@@ -433,39 +492,24 @@ export function TransactionsPage() {
     try {
       await unignoreTransaction(id);
     } catch {
-      toast({ title: 'Error', description: 'Failed to restore transaction', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to restore', variant: 'destructive' });
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await deleteTransaction(id);
-      // Clear local category for this transaction
       setLocalCategories((prev) => {
         const next = new Map(prev);
         next.delete(id);
         return next;
       });
     } catch {
-      toast({ title: 'Error', description: 'Failed to delete transaction', variant: 'destructive' });
+      toast({ title: 'Error', description: 'Failed to delete', variant: 'destructive' });
     }
   };
 
-  const tabs = [
-    { id: 'auto-mapped' as const, label: 'Auto-mapped', count: autoMapped.length },
-    {
-      id: 'uncategorized' as const,
-      label: 'Uncategorized',
-      count: uncategorized.length,
-      badge: mappedInUncategorized > 0 ? `${mappedInUncategorized} Mapped` : undefined
-    },
-    { id: 'ignored' as const, label: 'Ignored', count: ignored.length },
-  ];
-
-  const totalAmount = fullList.reduce((sum, t) => sum + t.amount, 0);
-  const selectedCount = selectedIds.size;
-
-  // Generate page numbers to show
+  // Pagination
   const getPageNumbers = () => {
     const pages: (number | 'ellipsis')[] = [];
     if (totalPages <= 7) {
@@ -473,7 +517,11 @@ export function TransactionsPage() {
     } else {
       pages.push(1);
       if (currentPage > 3) pages.push('ellipsis');
-      for (let i = Math.max(2, currentPage - 1); i <= Math.min(totalPages - 1, currentPage + 1); i++) {
+      for (
+        let i = Math.max(2, currentPage - 1);
+        i <= Math.min(totalPages - 1, currentPage + 1);
+        i++
+      ) {
         pages.push(i);
       }
       if (currentPage < totalPages - 2) pages.push('ellipsis');
@@ -488,10 +536,17 @@ export function TransactionsPage() {
       <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-xl font-semibold text-text-primary">Transactions</h1>
-          <p className="text-sm text-text-muted">{pendingTransactions.length} pending</p>
+          <p className="text-sm text-text-muted">
+            {active.length} pending
+            {uncategorizedCount > 0 ? ` · ${uncategorizedCount} uncategorized` : ''}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => router.push('/settings/rules')}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => router.push('/settings/rules')}
+          >
             <Settings2 className="w-4 h-4 mr-1" />
             Rules ({rules.length})
           </Button>
@@ -502,34 +557,52 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tab Toggle: Pending / Ignored */}
       <div className="flex gap-1 p-1 bg-surface rounded-lg mb-3">
-        {tabs.map((tab) => (
-          <motion.button
-            key={tab.id}
-            type="button"
-            onClick={() => { setActiveTab(tab.id); clearSelection(); setCurrentPage(1); }}
-            whileTap={{ scale: 0.98 }}
-            transition={bouncySpring}
-            className={`flex-1 py-2 px-2 rounded-md text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'bg-background text-text-primary shadow-sm'
-                : 'text-text-muted hover:text-text-secondary'
-            }`}
-          >
-            <span>{tab.label}</span>
-            {tab.count > 0 && (
-              <span className={`ml-1 text-xs ${activeTab === tab.id ? 'text-accent' : ''}`}>
-                {tab.count}
-              </span>
-            )}
-            {tab.badge && (
-              <span className="ml-1 text-xs text-green-600 font-medium">
-                ({tab.badge})
-              </span>
-            )}
-          </motion.button>
-        ))}
+        <motion.button
+          type="button"
+          onClick={() => {
+            setShowIgnored(false);
+            clearSelection();
+            setCurrentPage(1);
+          }}
+          whileTap={{ scale: 0.98 }}
+          transition={bouncySpring}
+          className={`flex-1 py-2 px-2 rounded-md text-sm font-medium transition-colors ${
+            !showIgnored
+              ? 'bg-background text-text-primary shadow-sm'
+              : 'text-text-muted hover:text-text-secondary'
+          }`}
+        >
+          Pending
+          {active.length > 0 && (
+            <span className={`ml-1 text-xs ${!showIgnored ? 'text-accent' : ''}`}>
+              {active.length}
+            </span>
+          )}
+        </motion.button>
+        <motion.button
+          type="button"
+          onClick={() => {
+            setShowIgnored(true);
+            clearSelection();
+            setCurrentPage(1);
+          }}
+          whileTap={{ scale: 0.98 }}
+          transition={bouncySpring}
+          className={`flex-1 py-2 px-2 rounded-md text-sm font-medium transition-colors ${
+            showIgnored
+              ? 'bg-background text-text-primary shadow-sm'
+              : 'text-text-muted hover:text-text-secondary'
+          }`}
+        >
+          Ignored
+          {ignored.length > 0 && (
+            <span className={`ml-1 text-xs ${showIgnored ? 'text-accent' : ''}`}>
+              {ignored.length}
+            </span>
+          )}
+        </motion.button>
       </div>
 
       {/* Actions Bar */}
@@ -537,19 +610,37 @@ export function TransactionsPage() {
         <div className="flex items-center justify-between mb-3 p-2 bg-surface rounded-lg text-sm">
           <div className="flex items-center gap-3">
             <span className="text-text-muted">
-              Total: <span className="font-medium text-text-primary">{formatCurrency(totalAmount, settings.currency)}</span>
+              Total:{' '}
+              <span className="font-medium text-text-primary">
+                {formatCurrency(totalAmount, settings.currency)}
+              </span>
             </span>
-            {activeTab === 'uncategorized' && (
+            {!showIgnored && (
               <>
-                <Button variant="ghost" size="sm" onClick={selectAll} className="h-7 text-xs">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={selectAll}
+                  className="h-7 text-xs"
+                >
                   Select All
                 </Button>
-                {selectedCount > 0 && (
+                {selectedIds.size > 0 && (
                   <>
-                    <Button variant="ghost" size="sm" onClick={clearSelection} className="h-7 text-xs">
-                      Clear ({selectedCount})
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={clearSelection}
+                      className="h-7 text-xs"
+                    >
+                      Clear ({selectedIds.size})
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => setBulkCategoryOpen(true)} className="h-7 text-xs">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setBulkCategoryOpen(true)}
+                      className="h-7 text-xs"
+                    >
                       Categorize Selected
                     </Button>
                   </>
@@ -557,33 +648,52 @@ export function TransactionsPage() {
               </>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            {activeTab === 'auto-mapped' && autoMapped.length > 0 && (
-              <Button size="sm" onClick={handleConfirmAll} disabled={savingMapped} className="h-7">
-                {savingMapped ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Check className="w-3 h-3 mr-1" />}
-                Confirm All ({autoMapped.length})
+          {!showIgnored && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAiSuggest}
+                disabled={aiSuggesting || uncategorizedCount === 0}
+                className="h-7"
+              >
+                {aiSuggesting ? (
+                  <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                ) : (
+                  <Sparkles className="w-3 h-3 mr-1" />
+                )}
+                AI Suggest
               </Button>
-            )}
-            {activeTab === 'uncategorized' && mappedInUncategorized > 0 && (
-              <Button size="sm" onClick={handleSaveMapped} disabled={savingMapped} className="h-7">
-                {savingMapped ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Save className="w-3 h-3 mr-1" />}
-                Save {mappedInUncategorized} Mapped
-              </Button>
-            )}
-          </div>
+              {categorizedCount > 0 && (
+                <Button
+                  size="sm"
+                  onClick={handleConfirmAll}
+                  disabled={saving}
+                  className="h-7"
+                >
+                  {saving ? (
+                    <Loader2 className="w-3 h-3 animate-spin mr-1" />
+                  ) : (
+                    <Check className="w-3 h-3 mr-1" />
+                  )}
+                  Confirm All ({categorizedCount})
+                </Button>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Transaction List */}
+      {/* Transaction Table */}
       <div className="border border-border rounded-lg overflow-hidden">
-        {/* Header */}
+        {/* Table Header */}
         <div className="bg-surface px-3 py-2 border-b border-border flex items-center gap-2 text-xs text-text-muted font-medium">
-          {activeTab === 'uncategorized' && <span className="w-6" />}
+          {!showIgnored && <span className="w-6" />}
           <span className="w-20">Date</span>
           <span className="flex-1">Description</span>
           <span className="w-16 text-right">Amount</span>
-          <span className="w-24">Category</span>
-          <span className="w-20">Actions</span>
+          <span className={showIgnored ? 'w-28' : 'w-32'}>Category</span>
+          <span className="w-16">Actions</span>
         </div>
 
         {isLoading ? (
@@ -593,20 +703,15 @@ export function TransactionsPage() {
         ) : currentList.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-text-muted text-sm">
-              {activeTab === 'auto-mapped'
-                ? 'No auto-mapped transactions. Create rules to auto-categorize imports.'
-                : activeTab === 'uncategorized'
-                ? 'No uncategorized transactions'
-                : 'No ignored transactions'}
+              {showIgnored ? 'No ignored transactions' : 'No pending transactions'}
             </p>
-            {activeTab === 'auto-mapped' && rules.length === 0 && (
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => router.push('/settings/rules')}>
-                <Settings2 className="w-4 h-4 mr-2" />
-                Create Rules
-              </Button>
-            )}
-            {pendingTransactions.length === 0 && activeTab !== 'auto-mapped' && (
-              <Button variant="outline" size="sm" className="mt-4" onClick={() => setImportOpen(true)}>
+            {!showIgnored && pendingTransactions.length === 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => setImportOpen(true)}
+              >
                 <Upload className="w-4 h-4 mr-2" />
                 Import CSV
               </Button>
@@ -614,32 +719,24 @@ export function TransactionsPage() {
           </div>
         ) : (
           <div className="max-h-[500px] overflow-y-auto">
-            {currentList.map((transaction, index) => {
-              const localCat = localCategories.get(transaction.id);
-              const displayTransaction = localCat
-                ? { ...transaction, category: localCat }
-                : transaction;
-
-              return (
-                <TransactionRow
-                  key={transaction.id}
-                  transaction={displayTransaction}
-                  categories={categories}
-                  currency={settings.currency}
-                  isSelected={selectedIds.has(transaction.id)}
-                  onToggleSelect={() => toggleSelect(transaction.id)}
-                  onCategoryChange={(catId) => handleCategoryChange(transaction.id, catId)}
-                  onIgnore={() => handleIgnore(transaction.id)}
-                  onUnignore={() => handleUnignore(transaction.id)}
-                  onDelete={() => handleDelete(transaction.id)}
-                  onConfirm={() => handleConfirm(transaction.id)}
-                  showCheckbox={activeTab === 'uncategorized'}
-                  showCategoryPicker={activeTab === 'uncategorized'}
-                  showUnignore={activeTab === 'ignored'}
-                  showConfirm={activeTab === 'auto-mapped'}
-                />
-              );
-            })}
+            {currentList.map((transaction) => (
+              <TransactionRow
+                key={transaction.id}
+                transaction={transaction}
+                categories={categories}
+                currency={settings.currency}
+                localCategory={localCategories.get(transaction.id)}
+                isSelected={selectedIds.has(transaction.id)}
+                onToggleSelect={() => toggleSelect(transaction.id)}
+                onCategoryChange={(catId) =>
+                  handleCategoryChange(transaction.id, catId)
+                }
+                onIgnore={() => handleIgnore(transaction.id)}
+                onUnignore={() => handleUnignore(transaction.id)}
+                onDelete={() => handleDelete(transaction.id)}
+                isIgnoredView={showIgnored}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -658,7 +755,9 @@ export function TransactionsPage() {
           </Button>
           {getPageNumbers().map((page, i) =>
             page === 'ellipsis' ? (
-              <span key={`ellipsis-${i}`} className="px-2 text-text-muted">...</span>
+              <span key={`ellipsis-${i}`} className="px-2 text-text-muted">
+                ...
+              </span>
             ) : (
               <Button
                 key={page}
@@ -681,7 +780,8 @@ export function TransactionsPage() {
             Next
           </Button>
           <span className="text-xs text-text-muted ml-2">
-            {(currentPage - 1) * PAGE_SIZE + 1}-{Math.min(currentPage * PAGE_SIZE, fullList.length)} of {fullList.length}
+            {(currentPage - 1) * PAGE_SIZE + 1}-
+            {Math.min(currentPage * PAGE_SIZE, fullList.length)} of {fullList.length}
           </span>
         </div>
       )}
@@ -691,7 +791,7 @@ export function TransactionsPage() {
       <BulkCategoryDialog
         open={bulkCategoryOpen}
         onClose={() => setBulkCategoryOpen(false)}
-        selectedCount={selectedCount}
+        selectedCount={selectedIds.size}
         categories={categories}
         onApply={handleBulkCategory}
       />

@@ -2,14 +2,13 @@
 
 import { usePathname, useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { Home, BarChart2, Settings, FileInput, MessageSquare } from 'lucide-react';
+import { Wallet, BarChart2, Settings, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { smoothSpring } from '@/lib/animations';
 
 const navItems = [
-  { href: '/', icon: MessageSquare, label: 'Chat' },
-  { href: '/expenses', icon: Home, label: 'Expenses' },
-  { href: '/import', icon: FileInput, label: 'Import' },
+  { href: '/', icon: Wallet, label: 'Expenses' },
+  { href: '/chat', icon: MessageSquare, label: 'Chat' },
   { href: '/monthly', icon: BarChart2, label: 'Reports' },
   { href: '/settings', icon: Settings, label: 'Settings' },
 ];

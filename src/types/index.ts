@@ -85,6 +85,8 @@ export interface LegacyTransactionRule {
 // Pending transactions (imported but not yet confirmed)
 export type PendingTransactionStatus = 'auto-mapped' | 'uncategorized' | 'ignored';
 
+export type CategorySource = 'rule' | 'ai' | 'manual';
+
 export interface PendingTransaction {
   id: string;
   date: string;
@@ -93,6 +95,8 @@ export interface PendingTransaction {
   category?: string;           // Auto-mapped category if rule matched
   status: PendingTransactionStatus;
   matchedRuleId?: string;      // Which rule matched (for auto-mapped)
+  source?: string;             // e.g. "December 2026 HDFC Credit Card Statement"
+  categorySource?: CategorySource; // How category was determined
   createdAt: string;
 }
 
@@ -219,6 +223,7 @@ export interface PendingTransactionsContextType {
   ignoreTransaction: (id: string) => Promise<void>;
   unignoreTransaction: (id: string) => Promise<void>;
   deleteTransaction: (id: string) => Promise<void>;
+  aiCategorize: (suggestions: { transactionId: string; categoryId: string }[]) => Promise<void>;
   addRule: (rule: Omit<TransactionRule, 'id' | 'createdAt'>) => Promise<TransactionRule | undefined>;
   updateRule: (rule: TransactionRule) => Promise<void>;
   deleteRule: (id: string) => Promise<void>;

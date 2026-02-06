@@ -4,7 +4,6 @@ import { useMemo, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
-import { ArrowLeft } from 'lucide-react';
 import { useExpenses, useCategories } from '@/context/ExpenseContext';
 import { MonthlyCard } from '@/components/MonthlyCard';
 import { SkeletonCard } from '@/components/SkeletonList';
@@ -45,10 +44,7 @@ export default function MonthlyOverviewPage() {
       <div className="min-h-screen bg-background">
         <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
           <div className="max-w-app mx-auto px-4 py-4">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg skeleton" />
-              <div className="h-6 w-32 skeleton rounded" />
-            </div>
+            <div className="h-6 w-32 skeleton rounded" />
           </div>
         </header>
         <div className="max-w-app mx-auto px-4 py-6 space-y-4">
@@ -65,17 +61,9 @@ export default function MonthlyOverviewPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
         <div className="max-w-app mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.back()}
-              className="p-2 -ml-2 rounded-lg hover:bg-surface-hover transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-text-secondary" />
-            </button>
-            <h1 className="text-xl font-semibold text-text-primary">
-              Monthly Overview
-            </h1>
-          </div>
+          <h1 className="text-xl font-semibold text-text-primary">
+            Reports
+          </h1>
         </div>
       </header>
 

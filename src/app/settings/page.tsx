@@ -4,8 +4,9 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Tag, Upload, Settings2 } from 'lucide-react';
+import { Tag, Upload, Settings2, LogOut, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import Image from 'next/image';
 import {
   Select,
   SelectContent,
@@ -15,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/useToast';
+import { signOut } from 'next-auth/react';
 import { SUPPORTED_CURRENCIES, CurrencyCode } from '@/types';
 import { pageVariants } from '@/lib/animations';
 
@@ -36,7 +38,7 @@ function SettingsSkeleton() {
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { status } = useSession();
+  const { data: session, status } = useSession();
   const { settings, updateSettings, isLoading } = useSettings();
   const { toast } = useToast();
 
@@ -70,17 +72,9 @@ export default function SettingsPage() {
       {/* Header */}
       <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
         <div className="max-w-app mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.back()}
-              className="p-2 -ml-2 rounded-lg hover:bg-surface-hover transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5 text-text-secondary" />
-            </button>
-            <h1 className="text-xl font-semibold text-text-primary">
-              Settings
-            </h1>
-          </div>
+          <h1 className="text-xl font-semibold text-text-primary">
+            Settings
+          </h1>
         </div>
       </header>
 
@@ -95,6 +89,40 @@ export default function SettingsPage() {
           <SettingsSkeleton />
         ) : (
           <>
+            {/* Account */}
+            <div className="bg-surface rounded-xl p-4 mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full overflow-hidden bg-surface-hover flex items-center justify-center flex-shrink-0">
+                  {session?.user?.image ? (
+                    <Image
+                      src={session.user.image}
+                      alt={session.user.name || 'Profile'}
+                      width={40}
+                      height={40}
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-5 h-5 text-text-muted" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-text-primary truncate">
+                    {session?.user?.name || 'User'}
+                  </p>
+                  <p className="text-xs text-text-muted truncate">
+                    {session?.user?.email}
+                  </p>
+                </div>
+                <button
+                  onClick={() => signOut()}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-lg transition-colors"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Sign out
+                </button>
+              </div>
+            </div>
+
             {/* Currency Setting */}
             <div className="bg-surface rounded-xl p-6 mb-4">
               <h2 className="text-lg font-semibold text-text-primary mb-1">

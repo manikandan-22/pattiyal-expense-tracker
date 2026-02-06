@@ -175,7 +175,6 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
 
           // Check if any rule matches (for uncategorized transactions)
           if (!t.category) {
-            const asTransaction: PendingTransaction = { ...base, status: 'uncategorized' };
             const matchedRule = state.rules.find(rule =>
               rule.enabled && rule.conditions.some(c =>
                 c.field === 'description' &&
@@ -188,6 +187,7 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
                 status: 'auto-mapped' as const,
                 category: matchedRule.categoryId,
                 matchedRuleId: matchedRule.id,
+                categorySource: 'rule' as const,
               };
             }
           }
@@ -376,7 +376,7 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
       const updated: PendingTransaction = {
         ...transaction,
         category: categoryId,
-        // Don't change status - manual categorization stays in uncategorized
+        categorySource: 'manual' as const,
       };
 
       try {
@@ -485,6 +485,41 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify(newPending));
       } catch (error) {
         console.error('Error deleting transaction:', error);
+        throw error;
+      }
+    },
+    [session, state.pendingTransactions]
+  );
+
+  const aiCategorize = useCallback(
+    async (suggestions: { transactionId: string; categoryId: string }[]) => {
+      if (!session || suggestions.length === 0) return;
+
+      const updatedTransactions = state.pendingTransactions.map(t => {
+        const suggestion = suggestions.find(s => s.transactionId === t.id);
+        if (suggestion && t.status !== 'ignored' && t.categorySource !== 'rule') {
+          return {
+            ...t,
+            category: suggestion.categoryId,
+            categorySource: 'ai' as const,
+            status: 'auto-mapped' as const,
+          };
+        }
+        return t;
+      });
+
+      try {
+        const year = new Date().getFullYear();
+        await fetch('/api/drive', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'pending-update-all', data: updatedTransactions, year }),
+        });
+
+        dispatch({ type: 'SET_PENDING', payload: updatedTransactions });
+        sessionStorage.setItem(PENDING_CACHE_KEY, JSON.stringify(updatedTransactions));
+      } catch (error) {
+        console.error('Error applying AI suggestions:', error);
         throw error;
       }
     },
@@ -638,6 +673,7 @@ export function PendingTransactionsProvider({ children }: { children: ReactNode 
         ignoreTransaction,
         unignoreTransaction,
         deleteTransaction,
+        aiCategorize,
         addRule,
         updateRule,
         deleteRule,

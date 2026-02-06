@@ -132,6 +132,7 @@ export function applyRulesToTransactions(
         status: 'auto-mapped' as const,
         category: matchedRule.categoryId,
         matchedRuleId: matchedRule.id,
+        categorySource: 'rule' as const,
       };
     }
 
@@ -143,6 +144,7 @@ export function applyRulesToTransactions(
         status: 'uncategorized' as const,
         category: undefined,
         matchedRuleId: undefined,
+        categorySource: undefined,
       };
     }
 
@@ -151,6 +153,7 @@ export function applyRulesToTransactions(
       ...transaction,
       status: transaction.matchedRuleId ? 'uncategorized' : transaction.status,
       matchedRuleId: undefined,
+      categorySource: transaction.matchedRuleId ? undefined : transaction.categorySource,
     };
   });
 }
@@ -177,6 +180,7 @@ export function applyNewRuleToTransactions(
         status: 'auto-mapped' as const,
         category: newRule.categoryId,
         matchedRuleId: newRule.id,
+        categorySource: 'rule' as const,
       };
     }
 
