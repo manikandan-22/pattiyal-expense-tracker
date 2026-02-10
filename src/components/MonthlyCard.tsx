@@ -30,7 +30,7 @@ export function MonthlyCard({
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={cn(
-        'w-full text-left p-5 bg-surface rounded-xl hover:shadow-soft transition-shadow',
+        'w-full text-left p-5 glass-card hover:shadow-elevated transition-shadow',
         className
       )}
     >
@@ -39,7 +39,7 @@ export function MonthlyCard({
           {formatMonthYear(month)}
         </h3>
         <div className="flex items-center gap-2">
-          <span className="text-lg font-semibold text-text-primary">
+          <span className="text-lg font-semibold text-text-primary font-mono">
             {formatCurrency(total, settings.currency)}
           </span>
           <ChevronRight className="w-5 h-5 text-text-muted" />
@@ -77,7 +77,7 @@ export function MonthlyCard({
                 <span className="text-xs text-text-secondary">
                   {cat.categoryName}
                 </span>
-                <span className="text-xs text-text-muted">
+                <span className="text-xs text-text-muted font-mono">
                   {formatCurrency(cat.total, settings.currency)}
                 </span>
               </div>

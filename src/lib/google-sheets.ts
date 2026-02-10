@@ -1,6 +1,6 @@
 import { google, sheets_v4 } from 'googleapis';
 import crypto from 'crypto';
-import { Expense, Category, UserSettings, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, PendingTransaction, TransactionRule } from '@/types';
+import { Expense, Category, UserSettings, DEFAULT_CATEGORIES, DEFAULT_SETTINGS, PendingTransaction, TransactionRule, GmailSyncState } from '@/types';
 import { extractYearFromId } from '@/lib/id-utils';
 
 // ============================================
@@ -786,6 +786,8 @@ export async function getSettings(
         settings.currency = value as UserSettings['currency'];
       } else if (key === 'onboardingCompleted') {
         settings.onboardingCompleted = value === 'true';
+      } else if (key === 'gmailSyncEnabled') {
+        settings.gmailSyncEnabled = value === 'true';
       }
     }
 
@@ -839,12 +841,13 @@ export async function updateSettings(
 
     await sheets.spreadsheets.values.update({
       spreadsheetId,
-      range: `${SETTINGS_SHEET}!A2:B3`,
+      range: `${SETTINGS_SHEET}!A2:B4`,
       valueInputOption: 'RAW',
       requestBody: {
         values: [
           ['currency', settings.currency],
           ['onboardingCompleted', settings.onboardingCompleted.toString()],
+          ['gmailSyncEnabled', settings.gmailSyncEnabled.toString()],
         ],
       },
     });
@@ -1363,6 +1366,86 @@ export async function saveRules(
       valueInputOption: 'RAW',
       requestBody: {
         values: [['rules', JSON.stringify(rules)]],
+      },
+    });
+  }
+}
+
+// ============================================
+// Gmail Sync State Operations
+// ============================================
+
+const DEFAULT_GMAIL_SYNC_STATE: GmailSyncState = {
+  lastSyncDate: '',
+  processedMessageIds: [],
+};
+
+export async function getGmailSyncState(
+  accessToken: string,
+  spreadsheetId: string
+): Promise<GmailSyncState> {
+  const sheets = createSheetsClient(accessToken);
+
+  try {
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId,
+      range: `${SETTINGS_SHEET}!A2:B`,
+    });
+
+    const rows = response.data.values;
+    if (!rows) return DEFAULT_GMAIL_SYNC_STATE;
+
+    const syncRow = rows.find((row) => row[0] === 'gmailSyncState');
+    if (!syncRow || !syncRow[1]) return DEFAULT_GMAIL_SYNC_STATE;
+
+    try {
+      return JSON.parse(syncRow[1]) as GmailSyncState;
+    } catch {
+      return DEFAULT_GMAIL_SYNC_STATE;
+    }
+  } catch (error) {
+    console.error('Error reading gmail sync state:', error);
+    return DEFAULT_GMAIL_SYNC_STATE;
+  }
+}
+
+export async function updateGmailSyncState(
+  accessToken: string,
+  spreadsheetId: string,
+  state: GmailSyncState
+): Promise<void> {
+  const sheets = createSheetsClient(accessToken);
+
+  // Cap processedMessageIds at 5000 (FIFO eviction)
+  if (state.processedMessageIds.length > 5000) {
+    state.processedMessageIds = state.processedMessageIds.slice(-5000);
+  }
+
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${SETTINGS_SHEET}!A2:B`,
+  });
+
+  const rows = response.data.values || [];
+  const syncRowIndex = rows.findIndex((row) => row[0] === 'gmailSyncState');
+
+  if (syncRowIndex !== -1) {
+    const sheetRow = syncRowIndex + 2;
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SETTINGS_SHEET}!A${sheetRow}:B${sheetRow}`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['gmailSyncState', JSON.stringify(state)]],
+      },
+    });
+  } else {
+    await sheets.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${SETTINGS_SHEET}!A2:B`,
+      valueInputOption: 'RAW',
+      requestBody: {
+        values: [['gmailSyncState', JSON.stringify(state)]],
       },
     });
   }

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Inter } from 'next/font/google';
 import { SessionProvider } from '@/components/SessionProvider';
 import { DataProvider } from '@/context/ExpenseContext';
 import { SettingsProvider } from '@/context/SettingsContext';
@@ -6,6 +7,12 @@ import { PendingTransactionsProvider } from '@/context/TransactionsContext';
 import { Toaster } from '@/components/ui/toaster';
 import { BottomNav } from '@/components/BottomNav';
 import './globals.css';
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Pattiyal',
@@ -18,8 +25,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className="min-h-screen bg-background font-sans antialiased">
+    <html lang="en" className="dark">
+      <body className={`${inter.variable} min-h-screen bg-background font-sans antialiased`}>
         <SessionProvider>
           <SettingsProvider>
             <DataProvider>

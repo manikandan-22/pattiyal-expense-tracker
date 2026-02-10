@@ -1,277 +1,214 @@
 # Expense Tracker (Pattiyal)
 
-## Overview
-A personal expense tracking app built with Next.js 14, using Google Sheets as the backend storage. Features CSV import, voice input, AI chat copilot, transaction rules engine, and multi-year expense management.
+Personal expense tracker — Next.js 14 App Router, Google Sheets backend, AI chat copilot.
 
 ## Tech Stack
-- **Frontend**: Next.js 14 (App Router), React, TypeScript, Tailwind CSS
-- **UI Components**: Radix UI primitives, Framer Motion animations, Lucide icons
-- **Auth**: NextAuth.js with Google OAuth (JWT strategy)
-- **Backend Storage**: Google Sheets API (yearly spreadsheets)
-- **AI**: Ollama (primary) with Gemini fallback for chat copilot and tool calling
-- **PDF OCR**: PaddleOCR on Modal.com (currently disabled)
+- Next.js 14 (App Router), React, TypeScript, Tailwind CSS
+- Radix UI primitives, Framer Motion, Lucide icons, Recharts
+- NextAuth.js (Google OAuth, JWT strategy)
+- Google Sheets API (yearly spreadsheets: "Expense Tracker 2024", etc.)
+- AI: Ollama (primary) + Gemini fallback (`gemini-2.0-flash` default)
+
+## Commands
+```bash
+npm run dev       # Dev server
+npm run build     # Production build
+npm run lint      # ESLint
+vercel deploy     # Deploy
+```
 
 ## Project Structure
 ```
-src/
-├── app/                          # Next.js App Router pages
-│   ├── api/
-│   │   ├── auth/[...nextauth]/  # NextAuth OAuth endpoints
-│   │   ├── chat/                # AI chat endpoint with tool calling
-│   │   ├── drive/               # Google Sheets CRUD operations
-│   │   ├── pdf/                 # PDF extraction proxy (disabled)
-│   │   └── settings/            # User settings management
-│   ├── page.tsx                 # Home - AI chat copilot
-│   ├── add/                     # Add expense page
-│   ├── expenses/                # Expense list with filters
-│   ├── import/                  # CSV import wizard
-│   ├── categories/              # Category management
-│   ├── monthly/                 # Monthly reports
-│   │   └── [month]/             # Specific month details
-│   ├── onboarding/              # First-time currency selection
-│   ├── settings/                # App settings
-│   │   └── rules/               # Transaction categorization rules
-│   └── auth/signin/             # Google OAuth sign-in
-├── components/
-│   ├── ui/                      # Radix UI primitives (Button, Input, Dialog, etc.)
-│   ├── BottomNav.tsx            # Mobile navigation
-│   ├── CategoryManager.tsx      # Category CRUD interface
-│   ├── CategoryPills.tsx        # Category filter chips
-│   ├── CategorySummary.tsx      # Category breakdown display
-│   ├── CsvImport.tsx            # 3-step import wizard
-│   ├── ExpenseAddDialog.tsx     # Add expense modal
-│   ├── ExpenseCard.tsx          # Individual expense card with swipe
-│   ├── ExpenseEditDialog.tsx    # Edit expense modal
-│   ├── ExpenseList.tsx          # Grouped expense display
-│   ├── FloatingAddButton.tsx    # Floating action button
-│   ├── Header.tsx               # Top nav with search
-│   ├── ImportWizard.tsx         # Advanced import wizard
-│   ├── InlineEdit.tsx           # Inline editing component
-│   ├── MonthlyCard.tsx          # Monthly summary card
-│   ├── SearchCommand.tsx        # Cmd+K search palette
-│   ├── SessionProvider.tsx      # NextAuth session wrapper
-│   ├── SkeletonList.tsx         # Loading skeleton
-│   ├── TransactionsPage.tsx     # Pending transactions management
-│   └── VoiceInput.tsx           # Speech-to-text entry
-├── context/
-│   ├── ExpenseContext.tsx       # Expenses + Categories state (useReducer)
-│   ├── SettingsContext.tsx      # Currency, onboarding state
-│   └── TransactionsContext.tsx  # Pending transactions + rules state
-├── hooks/
-│   ├── useDebounce.ts           # Debounce utility
-│   ├── useSwipe.ts              # Touch swipe detection
-│   ├── useToast.ts              # Toast notification hook
-│   └── useVoice.ts              # Web Speech API wrapper
-├── lib/
-│   ├── ai-client.ts             # LLM client (Ollama primary, Gemini fallback)
-│   ├── ai-tools.ts              # Tool definitions for AI copilot
-│   ├── animations.ts            # Framer Motion presets
-│   ├── auth.ts                  # NextAuth config
-│   ├── csvParser.ts             # CSV parsing + auto-detection
-│   ├── google-sheets.ts         # Google Sheets API wrapper
-│   ├── id-utils.ts              # Year extraction from prefixed IDs
-│   ├── ruleEngine.ts            # Rule matching for auto-categorization
-│   ├── utils.ts                 # Currency, date, grouping helpers
-│   └── voice-parser.ts          # Voice-to-expense parsing
-└── types/
-    └── index.ts                 # All TypeScript definitions
+src/app/
+  page.tsx                    # Expenses list (root route)
+  dashboard/                  # Home dashboard with trends + recent transactions
+  chat/                       # AI chat copilot
+  add/                        # Add expense
+  import/                     # CSV import wizard
+  categories/                 # Category management
+  monthly/[month]/            # Monthly reports
+  onboarding/                 # First-time currency setup
+  settings/                   # Settings hub
+    currency/                 # Currency picker sub-page
+    rules/                    # Transaction categorization rules
+  auth/signin/                # Google OAuth sign-in
+  api/
+    auth/[...nextauth]/       # NextAuth endpoints
+    chat/                     # AI chat with tool calling
+    drive/                    # Google Sheets CRUD (main data API)
+    pdf/                      # PDF extraction (disabled)
+    settings/                 # User preferences
 
-modal/
-└── pdf_extract.py               # Modal.com serverless OCR (disabled)
+src/components/
+  ui/                         # Radix primitives: button, input, dialog, select,
+                              #   popover, toast, toaster, card, calendar,
+                              #   date-picker, dropdown-menu
+  BottomNav.tsx               # 5-tab nav: Home, Expenses, Chat, Reports, Settings
+  ExpenseCard.tsx             # Expense card with swipe-to-delete
+  ExpenseList.tsx             # Day-grouped expense display
+  ExpenseForm.tsx             # Standalone add/edit form
+  ExpenseAddDialog.tsx        # Add expense modal
+  ExpenseEditDialog.tsx       # Edit expense modal
+  CategoryManager.tsx         # Category CRUD
+  CategoryPills.tsx           # Category filter chips
+  CategorySummary.tsx         # Category breakdown
+  ImportWizard.tsx            # CSV import wizard
+  TransactionsPage.tsx        # Pending transactions management
+  RecentTransactions.tsx      # Recent N expenses (dashboard)
+  SpendingTrendChart.tsx      # Current vs previous month chart (recharts)
+  MonthlyCard.tsx             # Monthly summary card
+  FloatingAddButton.tsx       # FAB
+  Header.tsx                  # Top nav with search
+  SearchCommand.tsx           # Cmd+K search (cmdk)
+  VoiceInput.tsx              # Speech-to-text
+
+src/context/
+  ExpenseContext.tsx           # Expenses + Categories state (useReducer)
+  SettingsContext.tsx          # Currency, onboarding state
+  TransactionsContext.tsx      # Pending transactions + rules state
+
+src/lib/
+  google-sheets.ts            # Sheets API wrapper
+  ai-client.ts                # LLM client (Ollama/Gemini fallback)
+  ai-tools.ts                 # Tool definitions for chat copilot
+  ruleEngine.ts               # Transaction rule matching
+  csvParser.ts                # CSV parsing + column auto-detection
+  voice-parser.ts             # Voice-to-expense parsing
+  animations.ts               # Framer Motion presets (smoothSpring, pageVariants)
+  auth.ts                     # NextAuth config
+  utils.ts                    # Currency, date, grouping helpers
+  id-utils.ts                 # Year extraction from prefixed IDs
+
+src/types/index.ts            # All TypeScript types + constants
+src/types/speech-recognition.d.ts  # Web Speech API declarations
 ```
 
-## API Routes
+## API: `/api/drive`
 
-### `/api/drive` - Main data operations
-| Method | Params | Description |
-|--------|--------|-------------|
-| GET | `type=expenses&year=2024` | Fetch expenses for year |
-| GET | `type=categories` | Fetch all categories |
-| GET | `type=pending` | Fetch pending transactions |
-| GET | `type=rules` | Fetch transaction rules |
-| GET | `type=search&q=...` | Search expenses across years |
-| POST | `type=expense` + body | Add single expense |
-| POST | `type=expenses-batch` + body | Batch import expenses |
-| POST | `type=category` + body | Add category |
-| POST | `type=pending` + body | Add pending transactions |
-| POST | `type=rule` + body | Add categorization rule |
-| PUT | `type=expense` + body | Update expense |
-| PUT | `type=category` + body | Update category |
-| PUT | `type=pending` + body | Update pending transaction |
-| PUT | `type=rule` + body | Update rule |
-| DELETE | `type=expense&id=xxx&year=2024` | Delete expense |
-| DELETE | `type=category&id=xxx` | Delete category |
-| DELETE | `type=pending&id=xxx` | Delete pending transaction |
-| DELETE | `type=rule&id=xxx` | Delete rule |
+All data operations go through this single route with `type` param.
 
-### `/api/chat` - AI chat copilot
-| Method | Description |
-|--------|-------------|
-| POST | Send message with optional PDF/image attachments; supports tool calling |
+**GET**: `expenses` (+ `year`), `categories`, `pending`, `rules`, `search` (+ `q`)
+**POST**: `expense`, `expenses-batch`, `category`, `pending`, `pending-batch`, `pending-update-all`, `rule`, `rules-save`, `ai-categorize`, `move-to-expenses`
+**PUT**: `expense`, `category`, `pending`, `rule`
+**DELETE**: `expense` (+ `id`, `year`), `category` (+ `id`), `pending` (+ `id`), `rule` (+ `id`)
 
-### `/api/settings` - User preferences
-| Method | Description |
-|--------|-------------|
-| GET | Get currency and onboarding status |
-| PUT | Update settings |
+Other routes: `POST /api/chat` (AI with tool calling), `GET|PUT /api/settings`
 
 ## Key Types
 ```typescript
 Expense { id, amount, date, category, description, createdAt, updatedAt }
-Category { id, name, color (hex), icon (emoji, optional) }
-CsvTransaction { id, date, description, amount, selected, category? }
-UserSettings { currency: CurrencyCode, onboardingCompleted: boolean }
-CurrencyCode = 'INR' | 'USD' | 'EUR' | 'GBP' | 'JPY' | 'CAD' | 'AUD' | 'CHF' | 'CNY' | 'SGD'
-
-// Transaction Rules
-TransactionRule { id, conditions: RuleCondition[], logicMode: 'all'|'any', categoryId, categoryName }
+Category { id, name, color (hex), icon (emoji) }
+TransactionRule { id, name, conditions: RuleCondition[], logicMode: 'all'|'any', categoryId, enabled, createdAt }
 RuleCondition { field: 'description'|'amount', matchType, value }
-LegacyTransactionRule { id, pattern, field, matchType, categoryId, categoryName }
-
-// Pending Transactions
-PendingTransaction { id, date, description, amount, status, category?, rule? }
-PendingTransactionStatus = 'auto_mapped' | 'uncategorized' | 'ignored' | 'confirmed'
-
-// AI Chat
-ChatMessage { role, content, attachments?, toolResults? }
-ChatAttachment { type: 'pdf'|'image', name, data }
+PendingTransaction { id, date, description, amount, status, category?, matchedRuleId?, source?, categorySource?: 'rule'|'ai'|'manual', createdAt? }
+PendingTransactionStatus = 'auto-mapped' | 'uncategorized' | 'ignored'  // hyphens, not underscores
+ChatMessage { role, content, attachments?, toolResults?, model?, isError? }
+ChatAttachment { type: 'pdf'|'image', name, base64 }
+CurrencyCode = 'INR'|'USD'|'EUR'|'GBP'|'JPY'|'CAD'|'AUD'|'CHF'|'CNY'|'SGD'
 ```
 
+Default categories: Groceries, Transport, Dining, Utilities, Entertainment, Shopping, Health, Other (defined in `DEFAULT_CATEGORIES` with emoji icons and `CATEGORY_COLORS`).
+
 ## Google Sheets Structure
-- **Naming**: "Expense Tracker 2024", "Expense Tracker 2025" (yearly)
-- **Sheets per spreadsheet**: Expenses, Categories, Settings, Pending Transactions, Rules
-- **Expenses columns**: id | amount | date | category | description | createdAt | updatedAt
-- **Categories columns**: id | name | color | icon
-- **Settings columns**: key | value (currency, onboardingCompleted)
-- **Pending Transactions columns**: id | date | description | amount | status | category | rule
-- **Rules columns**: id | conditions | logicMode | categoryId | categoryName
-
-## Default Categories
-Groceries, Transport, Dining, Utilities, Entertainment, Shopping, Health, Other
-
-## Key Workflows
-
-### AI Chat Copilot (page.tsx + ai-client.ts + ai-tools.ts)
-- Natural language queries about expenses ("How much did I spend on dining this month?")
-- Tool-calling: the AI can search expenses, add expenses, list categories
-- Supports PDF and image attachments
-- Chat history persisted in localStorage
-- Uses Ollama as primary LLM, falls back to Gemini
-
-### CSV Import (CsvImport.tsx + TransactionsPage.tsx)
-1. Upload CSV file
-2. Auto-detect columns (date, description, amount) or manual mapping
-3. Apply transaction rules for auto-categorization
-4. Review in tabs: Auto-mapped | Uncategorized | Ignored
-5. Bulk confirm or manually categorize
-6. Batch import via `/api/drive?type=expenses-batch`
-
-### Transaction Rules (ruleEngine.ts + settings/rules)
-- Multi-condition rules with AND/OR logic
-- Match on description (contains, starts with, regex) or amount (equals, greater than, etc.)
-- Auto-applied during CSV import to categorize transactions
-- Managed via Settings > Categorization Rules
-
-### Voice Input (VoiceInput.tsx + voice-parser.ts)
-- Example: "spent fifty dollars on groceries yesterday"
-- Parses: amount, category, date, description with confidence score
-
-### Expense Management
-- Expenses page: grouped by day, category filters, search (Cmd+K)
-- Edit/delete via dialogs, swipe-to-delete on cards
-- Multi-year support (automatic spreadsheet per year)
+Yearly spreadsheets ("Expense Tracker YYYY") with sheets: Expenses, Categories, Settings, Pending Transactions, Rules.
 
 ## Environment Variables
 ```
-GOOGLE_CLIENT_ID=...
-GOOGLE_CLIENT_SECRET=...
-NEXTAUTH_SECRET=...
-NEXTAUTH_URL=http://localhost:3000
-MODAL_ENDPOINT_URL=...          # Optional, for PDF OCR
-OCR_SPACE_API_KEY=...           # Optional, for PDF OCR
-OLLAMA_BASE_URL=...             # Primary LLM endpoint
-OLLAMA_MODEL=...                # Ollama model name
-OLLAMA_API_KEY=...              # Ollama API key
-GEMINI_API_KEY=...              # Fallback LLM
-GEMINI_MODEL=...                # Gemini model name
-```
-
-## Common Issues
-
-### Blank page / unstyled nav
-```bash
-pkill -f "next dev"; rm -rf .next; npm run dev
-```
-
-### Hydration errors
-Check for browser-only APIs (Speech, localStorage) - use useEffect guards
-
-### Google Sheets auth errors
-Verify OAuth scopes include `spreadsheets` and `drive.file`
-
-## Commands
-```bash
-npm run dev          # Local development
-npm run build        # Production build
-npm run start        # Production server
-npm run lint         # ESLint check
-vercel deploy        # Deploy to Vercel
+GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
+NEXTAUTH_SECRET, NEXTAUTH_URL
+OLLAMA_BASE_URL, OLLAMA_MODEL, OLLAMA_API_KEY
+GEMINI_API_KEY, GEMINI_MODEL
+MODAL_ENDPOINT_URL  # optional, PDF OCR (disabled)
 ```
 
 ---
 
-## Agent Instructions
+## Design System — iOS 26 Liquid Glass
 
-### For UI Components
-- All UI primitives in `src/components/ui/` (Radix-based)
-- Use existing Button, Input, Dialog, Select, Card, Toast components
-- Animations: import from `lib/animations.ts` (smoothSpring, pageVariants)
-- Icons: Lucide React (`lucide-react`)
+**All screens must follow this glass design language. Do not deviate.**
 
-### For Data Operations
-- Never call Google Sheets directly - use `/api/drive` routes
+### Fonts
+- **Body**: Inter (`next/font/google`, var `--font-inter`, Tailwind `font-sans`)
+- **Numbers**: system monospace (`font-mono`) — always apply to monetary amounts and numeric displays
+
+### Page Layout (every page)
+```tsx
+<div className="min-h-screen ios26-bg">
+  <header className="sticky top-0 z-30 glass-heavy">
+    <div className="max-w-app mx-auto px-5 md:px-8 py-4">{/* Title */}</div>
+  </header>
+  <motion.div variants={pageVariants} initial="initial" animate="animate"
+    className="max-w-app mx-auto px-4 md:px-6 py-6">{/* Content */}</motion.div>
+</div>
+```
+
+Sub-page headers: back button with `ArrowLeft`, `text-text-secondary`, `hover:bg-surface-hover`.
+
+### Glass CSS Classes (`globals.css`)
+| Class | Purpose |
+|-------|---------|
+| `ios26-bg` | Page background — teal/navy mesh gradients |
+| `glass` | Standard translucent material |
+| `glass-heavy` | Sticky headers — blur(40px) saturate(180%) |
+| `glass-card` | Content cards — translucent bg + blur(24px), 16px radius |
+| `glass-pill` | Active tab/chip — lighter glass fill + shadow |
+| `glass-tab-bar` | Tab group container — 14px radius |
+| `glass-btn` | Button glass — blur(12px) + border |
+| `glass-separator` | Divider — `var(--glass-separator)` |
+| `glass-dialog-overlay` | Dialog overlay animation |
+| `glass-dialog-content` | Dialog content animation |
+| `glass-dropdown` | Dropdown menu animation |
+
+### Rules
+- Cards: always `glass-card`, never opaque `bg-surface`/`bg-background`
+- Grouped lists: `glass-card divide-y divide-[var(--glass-separator)]`
+- Tabs: `glass-tab-bar flex gap-1 p-1.5`, active = `glass-pill rounded-xl`
+- Dialogs/Selects: styled globally in `ui/dialog.tsx` and `ui/select.tsx` — do not override
+
+### Color Tokens
+| Token | Light | Dark |
+|-------|-------|------|
+| `--background` | #F2F2F7 | #162032 |
+| `--surface` | #FFFFFF | #1e2d42 |
+| `--text-primary` | #000000 | #FFFFFF |
+| `--text-secondary` | rgba(60,60,67,0.6) | rgba(235,235,245,0.6) |
+| `--text-muted` | rgba(60,60,67,0.36) | rgba(235,235,245,0.3) |
+| `--accent` | #007AFF | #007AFF |
+| `--glass-bg` | rgba(255,255,255,0.55) | rgba(255,255,255,0.06) |
+| `--glass-bg-heavy` | rgba(255,255,255,0.78) | rgba(20,35,60,0.70) |
+| `--glass-card-bg` | rgba(255,255,255,0.92) | rgba(30,45,66,0.2) |
+
+Additional Tailwind tokens: `ios-*` colors, `cat-*` category colors, `surface-hover`, `success`, `warning`, `error`. Shadows: `soft`, `medium`, `elevated`, `glass`, `glass-pill`.
+
+---
+
+## Agent Rules
+
+### Data
+- Never call Google Sheets directly — use `/api/drive` routes
 - Three context providers in layout: `DataProvider`, `SettingsProvider`, `PendingTransactionsProvider`
-- Contexts auto-cache to sessionStorage; call `refresh()` after mutations
-- Expense dates: ISO format (YYYY-MM-DD)
-- IDs: UUID v4 (generated server-side)
+- Contexts cache to sessionStorage; call `refresh()` after mutations
+- Dates: ISO `YYYY-MM-DD`, IDs: UUID v4 (server-generated)
 
-### For AI Features
-- LLM client in `lib/ai-client.ts` - handles Ollama/Gemini with automatic fallback
-- Tool definitions in `lib/ai-tools.ts` - add new tools here for chat capabilities
-- Chat API route streams responses via `/api/chat`
+### UI
+- Use existing Radix primitives from `src/components/ui/`
+- Animations: import from `lib/animations.ts`
+- Icons: `lucide-react`
+- Follow glass design system — no opaque backgrounds on pages or cards
+- Use `skeleton` CSS class for loading states
 
-### For Transaction Rules
-- Rule engine in `lib/ruleEngine.ts` - matching logic
-- Rules support legacy (single pattern) and new (multi-condition) formats
-- Rules context in `TransactionsContext.tsx`
+### New Pages
+- App Router `page.tsx` convention
+- Providers already in layout — no wrapping needed
+- Add to `BottomNav.tsx` if primary navigation
+- Must use `ios26-bg` + `glass-heavy` header + `max-w-app` layout
 
-### For New Pages
-- Use App Router conventions (`page.tsx`)
-- All three providers already in layout (no wrapping needed)
-- Add route to `BottomNav.tsx` if primary navigation
-
-### For Testing Changes
+### Testing
 - Check mobile view (bottom nav, touch targets)
-- Verify sessionStorage cache invalidation after CRUD
-- Test with empty states (no expenses, no categories)
+- Verify sessionStorage invalidation after CRUD
+- Test empty states
 
-### Code Style
-- TypeScript strict mode
-- Tailwind for all styling
-- Framer Motion for animations
-- Radix UI for accessible primitives
-- Error handling: toast notifications via `useToast()`
-
-### File Locations Quick Reference
-| Need to... | Look in... |
-|------------|------------|
-| Add API endpoint | `src/app/api/` |
-| Modify expense logic | `src/lib/google-sheets.ts` |
-| Update types | `src/types/index.ts` |
-| Change animations | `src/lib/animations.ts` |
-| Add UI component | `src/components/ui/` |
-| Modify state | `src/context/` |
-| Parse CSV/voice | `src/lib/csvParser.ts`, `src/lib/voice-parser.ts` |
-| Add AI tools | `src/lib/ai-tools.ts` |
-| Modify rule engine | `src/lib/ruleEngine.ts` |
-| Manage pending transactions | `src/context/TransactionsContext.tsx` |
+### Common Issues
+- Blank page: `pkill -f "next dev"; rm -rf .next; npm run dev`
+- Hydration errors: guard browser-only APIs (Speech, localStorage) with `useEffect`
+- Sheets auth: verify OAuth scopes include `spreadsheets` and `drive.file`

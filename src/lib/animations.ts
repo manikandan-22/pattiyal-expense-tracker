@@ -25,6 +25,14 @@ export const bouncySpring = {
   mass: 0.8,
 };
 
+// Liquid glass — slow, fluid, natural deceleration
+export const liquidSpring = {
+  type: 'spring',
+  stiffness: 150,
+  damping: 20,
+  mass: 1,
+};
+
 // Page transition variants
 export const pageVariants = {
   initial: {

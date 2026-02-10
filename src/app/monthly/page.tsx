@@ -41,13 +41,13 @@ export default function MonthlyOverviewPage() {
 
   if (status === 'loading' || state.loading) {
     return (
-      <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-          <div className="max-w-app mx-auto px-4 py-4">
+      <div className="min-h-screen ios26-bg">
+        <header className="">
+          <div className="max-w-app mx-auto px-5 md:px-8 py-4">
             <div className="h-6 w-32 skeleton rounded" />
           </div>
         </header>
-        <div className="max-w-app mx-auto px-4 py-6 space-y-4">
+        <div className="max-w-app mx-auto px-4 md:px-6 py-6 space-y-4">
           {[1, 2, 3].map((i) => (
             <SkeletonCard key={i} />
           ))}
@@ -57,11 +57,11 @@ export default function MonthlyOverviewPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen ios26-bg">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
-          <h1 className="text-xl font-semibold text-text-primary">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
+          <h1 className="text-2xl font-bold text-text-primary tracking-tight">
             Reports
           </h1>
         </div>
@@ -71,7 +71,7 @@ export default function MonthlyOverviewPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-app mx-auto px-4 py-6"
+        className="max-w-app mx-auto px-4 md:px-6 py-6"
       >
         {monthlyData.length === 0 ? (
           <div className="text-center py-16">

@@ -25,62 +25,7 @@ import {
 import { Expense, Category, PendingTransaction, TransactionRule } from '@/types';
 import { v4 as uuidv4 } from 'uuid';
 import { extractYearFromId } from '@/lib/id-utils';
-
-async function callLLMNonStreaming(prompt: string): Promise<string> {
-  const ollamaUrl = process.env.OLLAMA_BASE_URL;
-  const ollamaModel = process.env.OLLAMA_MODEL;
-
-  if (ollamaUrl && ollamaModel) {
-    try {
-      let endpoint = ollamaUrl.replace(/\/+$/, '');
-      endpoint = endpoint.endsWith('/api') ? `${endpoint}/chat` : `${endpoint}/api/chat`;
-      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (process.env.OLLAMA_API_KEY) headers['Authorization'] = `Bearer ${process.env.OLLAMA_API_KEY}`;
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({
-          model: ollamaModel,
-          messages: [{ role: 'user', content: prompt }],
-          stream: false,
-          format: 'json',
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        return data.message?.content || '{"suggestions":[]}';
-      }
-    } catch (e) {
-      console.error('Ollama failed for ai-categorize:', e);
-    }
-  }
-
-  const geminiKey = process.env.GEMINI_API_KEY;
-  const geminiModel = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
-
-  if (geminiKey) {
-    const res = await fetch('https://generativelanguage.googleapis.com/v1beta/openai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${geminiKey}`,
-      },
-      body: JSON.stringify({
-        model: geminiModel,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' },
-      }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      return data.choices?.[0]?.message?.content || '{"suggestions":[]}';
-    }
-    throw new Error(`Gemini API error: ${res.status}`);
-  }
-
-  throw new Error('No LLM provider configured');
-}
+import { callLLMNonStreaming } from '@/lib/ai-client';
 
 // GET - Fetch expenses or categories
 export async function GET(request: NextRequest) {

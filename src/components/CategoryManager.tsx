@@ -142,7 +142,7 @@ export function CategoryManager({ categories }: CategoryManagerProps) {
               exit={{ opacity: 0, x: -100 }}
               transition={{ delay: index * 0.03 }}
               layout
-              className="flex items-center gap-3 p-4 bg-surface rounded-lg"
+              className="flex items-center gap-3 p-4 glass-card"
             >
               <div
                 className="w-4 h-4 rounded-full"

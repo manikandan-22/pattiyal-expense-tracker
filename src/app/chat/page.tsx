@@ -56,9 +56,9 @@ function saveChatHistory(messages: ChatMessage[]) {
 
 function ChatSkeleton() {
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
+    <div className="min-h-screen ios26-bg flex flex-col">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
           <div className="h-6 w-32 skeleton rounded" />
         </div>
       </header>
@@ -160,7 +160,7 @@ function MessageBubble({
             className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
               isUser
                 ? 'bg-accent text-white rounded-br-md whitespace-pre-wrap'
-                : 'bg-surface text-text-primary rounded-bl-md'
+                : 'glass-card text-text-primary rounded-bl-md'
             }`}
           >
             {isUser ? (
@@ -554,12 +554,12 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
+    <div className="min-h-screen ios26-bg flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
           <div className="flex items-center gap-2">
-            <Bot className="w-5 h-5 text-accent" />
+            <Bot className="w-5 h-5 text-text-secondary" />
             <h1 className="text-xl font-semibold text-text-primary">Chat</h1>
           </div>
         </div>
@@ -576,8 +576,8 @@ export default function ChatPage() {
               transition={smoothSpring}
               className="flex flex-col items-center justify-center pt-12 pb-8"
             >
-              <div className="w-14 h-14 rounded-2xl bg-accent/10 flex items-center justify-center mb-4">
-                <Bot className="w-7 h-7 text-accent" />
+              <div className="w-14 h-14 rounded-2xl glass flex items-center justify-center mb-4">
+                <Bot className="w-7 h-7 text-text-secondary" />
               </div>
               <h2 className="text-lg font-semibold text-text-primary mb-1">
                 Hey! How can I help?
@@ -596,7 +596,7 @@ export default function ChatPage() {
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       onClick={() => sendMessage(s.text)}
-                      className="flex items-center gap-2 px-3 py-2.5 bg-surface hover:bg-surface-hover rounded-xl text-sm text-text-secondary text-left transition-colors"
+                      className="flex items-center gap-2 px-3 py-2.5 glass-card hover:bg-surface-hover rounded-xl text-sm text-text-secondary text-left transition-colors"
                     >
                       <Icon className="w-4 h-4 text-text-muted flex-shrink-0" />
                       <span>{s.text}</span>
@@ -626,7 +626,7 @@ export default function ChatPage() {
               animate={{ opacity: 1 }}
               className="flex justify-start"
             >
-              <div className="px-4 py-2.5 bg-surface rounded-2xl rounded-bl-md">
+              <div className="px-4 py-2.5 glass-card rounded-2xl rounded-bl-md">
                 <div className="flex items-center gap-1.5">
                   <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
                   <div className="w-1.5 h-1.5 bg-text-muted rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
@@ -641,7 +641,7 @@ export default function ChatPage() {
       </div>
 
       {/* Input area */}
-      <div className="sticky bottom-20 z-30 border-t border-border bg-background/80 backdrop-blur-sm">
+      <div className="sticky bottom-20 z-30">
         <div className="max-w-app mx-auto px-4 py-3">
           {/* Attachment preview */}
           {attachments.length > 0 && (
@@ -649,14 +649,14 @@ export default function ChatPage() {
               {attachments.map((att, i) => (
                 <span
                   key={i}
-                  className="inline-flex items-center gap-1 pl-2 pr-1 py-1 bg-surface rounded-lg text-xs text-text-secondary"
+                  className="inline-flex items-center gap-1 pl-2 pr-1 py-1 glass-pill rounded-lg text-xs text-text-secondary"
                 >
                   <Paperclip className="w-3 h-3" />
                   <span className="max-w-[120px] truncate">{att.name}</span>
                   <button
                     type="button"
                     onClick={() => removeAttachment(i)}
-                    className="p-0.5 hover:bg-surface-hover rounded"
+                    className="p-0.5 hover:bg-black/[0.06] dark:hover:bg-white/[0.08] rounded"
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -665,12 +665,12 @@ export default function ChatPage() {
             </div>
           )}
 
-          {/* Input row */}
-          <div className="flex items-end gap-2">
+          {/* Input row — glass capsule */}
+          <div className="flex items-end gap-2 glass-tab-bar p-2">
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="p-2 text-text-muted hover:text-text-secondary hover:bg-surface-hover rounded-lg transition-colors flex-shrink-0 mb-0.5"
+              className="p-2 text-text-muted hover:text-text-secondary hover:bg-black/[0.04] dark:hover:bg-white/[0.06] rounded-xl transition-colors flex-shrink-0 mb-0.5"
             >
               <Paperclip className="w-5 h-5" />
             </button>
@@ -692,7 +692,7 @@ export default function ChatPage() {
               onKeyDown={handleKeyDown}
               placeholder="Message Pattiyal AI..."
               rows={1}
-              className="flex-1 resize-none bg-surface rounded-xl px-4 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none focus:ring-2 focus:ring-accent/30 max-h-[120px]"
+              className="flex-1 resize-none bg-transparent rounded-xl px-3 py-2.5 text-sm text-text-primary placeholder:text-text-muted outline-none max-h-[120px]"
             />
 
             {isStreaming ? (
@@ -700,7 +700,7 @@ export default function ChatPage() {
                 type="button"
                 whileTap={{ scale: 0.9 }}
                 onClick={handleStop}
-                className="p-2 bg-red-500 text-white rounded-lg flex-shrink-0 mb-0.5 transition-opacity"
+                className="p-2 bg-red-500 text-white rounded-xl flex-shrink-0 mb-0.5 transition-opacity"
               >
                 <Square className="w-5 h-5 fill-current" />
               </motion.button>
@@ -710,7 +710,7 @@ export default function ChatPage() {
                 whileTap={{ scale: 0.9 }}
                 onClick={() => sendMessage()}
                 disabled={!input.trim() && attachments.length === 0}
-                className="p-2 bg-accent text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 mb-0.5 transition-opacity"
+                className="p-2 bg-accent text-white rounded-xl disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0 mb-0.5 transition-opacity shadow-sm"
               >
                 <Send className="w-5 h-5" />
               </motion.button>

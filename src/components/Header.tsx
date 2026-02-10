@@ -18,35 +18,33 @@ export function Header({ totalSpent, onSearchClick }: HeaderProps) {
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-      <div className="max-w-app mx-auto px-4 py-4">
+    <header>
+      <div className="max-w-app mx-auto px-5 md:px-8 pt-4 pb-2">
         <div className="flex items-center justify-between">
-          {/* Left: Logo/Title */}
+          {/* Left: iOS 26 large title */}
           <div>
-            <h1 className="text-xl font-semibold text-text-primary">
+            <h1 className="text-2xl md:text-3xl font-bold text-text-primary tracking-tight">
               Pattiyal
             </h1>
             {totalSpent !== undefined && (
               <motion.p
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="text-sm text-text-secondary"
+                className="text-sm text-text-secondary mt-0.5 font-mono"
               >
                 {formatWithCurrency(totalSpent)} this month
               </motion.p>
             )}
           </div>
 
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onSearchClick}
-              className="p-2 rounded-lg hover:bg-surface-hover transition-colors text-text-secondary hover:text-text-primary"
-              title="Search (Cmd+K)"
-            >
-              <Search className="w-5 h-5" />
-            </button>
-          </div>
+          {/* Right: Glass search button */}
+          <button
+            onClick={onSearchClick}
+            className="w-9 h-9 rounded-full glass flex items-center justify-center text-text-secondary hover:text-text-primary transition-colors"
+            title="Search (Cmd+K)"
+          >
+            <Search className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </header>

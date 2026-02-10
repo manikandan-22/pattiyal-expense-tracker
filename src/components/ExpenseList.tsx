@@ -30,7 +30,6 @@ export function ExpenseList({
 }: ExpenseListProps) {
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
-  // Create category lookup map for O(1) access
   const categoryMap = useMemo(() => {
     const map = new Map<string, Category>();
     for (const cat of categories) {
@@ -41,7 +40,6 @@ export function ExpenseList({
 
   const getCategoryById = (id: string) => categoryMap.get(id);
 
-  // Only render visible expenses, then group by day
   const visibleExpenses = useMemo(() => {
     return expenses.slice(0, visibleCount);
   }, [expenses, visibleCount]);
@@ -67,14 +65,14 @@ export function ExpenseList({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         className={cn(
-          'flex flex-col items-center justify-center py-16 text-center',
+          'flex flex-col items-center justify-center py-20 text-center',
           className
         )}
       >
-        <div className="w-16 h-16 mb-4 rounded-full bg-surface-hover flex items-center justify-center">
+        <div className="w-16 h-16 mb-4 rounded-2xl glass flex items-center justify-center">
           <span className="text-3xl">💸</span>
         </div>
-        <h3 className="text-lg font-medium text-text-primary mb-1">
+        <h3 className="text-lg font-semibold text-text-primary mb-1">
           No expenses yet
         </h3>
         <p className="text-sm text-text-secondary max-w-xs">
@@ -85,24 +83,24 @@ export function ExpenseList({
   }
 
   return (
-    <div className={cn('space-y-6', className)}>
+    <div className={cn('space-y-6 md:space-y-8', className)}>
       {groupedExpenses.map((group, groupIndex) => (
         <motion.div
           key={group.day}
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{
             ...smoothSpring,
-            delay: Math.min(groupIndex, 3) * 0.08,
+            delay: Math.min(groupIndex, 3) * 0.06,
           }}
         >
-          {/* Day Header */}
-          <h3 className="text-sm font-semibold text-text-secondary mb-2 px-1">
+          {/* Day Header — iOS 26 section header style */}
+          <h3 className="text-xs font-semibold text-text-secondary uppercase tracking-wider mb-2 px-4 md:px-5">
             {group.dayTitle}
           </h3>
 
-          {/* Expenses for this day */}
-          <div className="bg-surface rounded-xl overflow-hidden">
+          {/* iOS 26 grouped list card */}
+          <div className="glass-card">
             <AnimatePresence mode="popLayout">
               {group.expenses.map((expense, index) => (
                 <motion.div
@@ -113,9 +111,6 @@ export function ExpenseList({
                   exit="exit"
                   layout
                   layoutId={expense.id}
-                  className={cn(
-                    index < group.expenses.length - 1 && 'border-b border-border'
-                  )}
                 >
                   <ExpenseCard
                     expense={expense}
@@ -123,6 +118,10 @@ export function ExpenseList({
                     onEdit={onEdit}
                     onDelete={onDelete}
                   />
+                  {/* iOS-style inset separator */}
+                  {index < group.expenses.length - 1 && (
+                    <div className="ml-16 md:ml-[68px] mr-4 h-[0.5px] glass-separator border-b" />
+                  )}
                 </motion.div>
               ))}
             </AnimatePresence>
@@ -139,7 +138,7 @@ export function ExpenseList({
           whileTap={{ scale: 0.98 }}
           transition={smoothSpring}
           onClick={loadMore}
-          className="w-full py-3 flex items-center justify-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-surface-hover rounded-lg transition-colors"
+          className="w-full py-3 flex items-center justify-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary rounded-xl transition-colors"
         >
           <span>Show more ({remainingCount} remaining)</span>
           <ChevronDown className="w-4 h-4" />

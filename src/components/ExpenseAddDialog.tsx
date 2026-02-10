@@ -121,7 +121,7 @@ export function ExpenseAddDialog({ open, onOpenChange }: ExpenseAddDialogProps) 
                 min="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="pl-10 text-2xl font-semibold h-14"
+                className="pl-10 text-2xl font-semibold h-14 font-mono"
                 placeholder="0.00"
                 autoFocus
               />

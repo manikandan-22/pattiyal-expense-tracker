@@ -84,10 +84,10 @@ export default function MonthDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background pb-8">
+    <div className="min-h-screen ios26-bg pb-8">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -129,12 +129,12 @@ export default function MonthDetailPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-app mx-auto px-4 py-6"
+        className="max-w-app mx-auto px-4 md:px-6 py-6"
       >
         {/* Total Card */}
-        <div className="bg-surface rounded-xl p-6 mb-6">
+        <div className="glass-card p-6 mb-6">
           <p className="text-sm text-text-secondary mb-1">Total Spent</p>
-          <p className="text-3xl font-semibold text-text-primary">
+          <p className="text-3xl font-semibold text-text-primary font-mono">
             {formatCurrency(monthTotal, settings.currency)}
           </p>
           <p className="text-sm text-text-muted mt-1">
@@ -144,7 +144,7 @@ export default function MonthDetailPage() {
 
         {/* Category Summary */}
         {breakdown.length > 0 && (
-          <div className="bg-surface rounded-xl p-6 mb-6">
+          <div className="glass-card p-6 mb-6">
             <h2 className="text-lg font-semibold text-text-primary mb-4">
               By Category
             </h2>

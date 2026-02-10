@@ -352,6 +352,60 @@ async function* callOpenAIProvider(
   yield { type: 'done', finishReason: finishReason || 'stop', model: config.model };
 }
 
+// ── Non-Streaming LLM Call ──────────────────────────────────────────────
+
+export async function callLLMNonStreaming(prompt: string): Promise<string> {
+  const ollama = getOllamaConfig();
+  const gemini = getGeminiConfig();
+
+  if (ollama) {
+    try {
+      const endpoint = getOllamaEndpoint(ollama.baseUrl);
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (ollama.apiKey) headers['Authorization'] = `Bearer ${ollama.apiKey}`;
+
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          model: ollama.model,
+          messages: [{ role: 'user', content: prompt }],
+          stream: false,
+          format: 'json',
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        return data.message?.content || '{}';
+      }
+    } catch (e) {
+      console.error('Ollama non-streaming failed:', e);
+    }
+  }
+
+  if (gemini) {
+    const res = await fetch(`${gemini.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${gemini.apiKey}`,
+      },
+      body: JSON.stringify({
+        model: gemini.model,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' },
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '{}';
+    }
+    throw new Error(`Gemini API error: ${res.status}`);
+  }
+
+  throw new Error('No LLM provider configured');
+}
+
 // ── Main Entry Point ───────────────────────────────────────────────────
 
 // Stream with Ollama (native API), fallback to Gemini (OpenAI-compatible)

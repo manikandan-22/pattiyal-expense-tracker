@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -14,6 +14,8 @@ import {
   CheckSquare,
   Square,
   Sparkles,
+  ArrowLeft,
+  Pencil,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -35,6 +37,8 @@ import { usePendingTransactions } from '@/context/TransactionsContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useToast } from '@/hooks/useToast';
 import { ImportWizard } from '@/components/ImportWizard';
+import { GmailSyncButton } from '@/components/GmailSyncButton';
+import { useGmailSync } from '@/hooks/useGmailSync';
 import { PendingTransaction, Category, CurrencyCode, CategorySource } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { bouncySpring } from '@/lib/animations';
@@ -55,14 +59,71 @@ function CategoryBadge({ source }: { source?: CategorySource }) {
   );
 }
 
+function InlineEditDescription({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (editing) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editing]);
+
+  const commit = () => {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== value) {
+      onChange(trimmed);
+    } else {
+      setDraft(value);
+    }
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') { setDraft(value); setEditing(false); }
+        }}
+        className="text-xs text-text-primary bg-transparent border-b border-[var(--accent)] outline-none w-full py-0.5"
+      />
+    );
+  }
+
+  return (
+    <button
+      onClick={() => { setDraft(value); setEditing(true); }}
+      className="flex items-center gap-1 group text-left w-full min-w-0"
+    >
+      <span className="text-xs text-text-primary truncate block">{value}</span>
+      <Pencil className="w-2.5 h-2.5 text-text-muted opacity-0 group-hover:opacity-100 flex-shrink-0 transition-opacity" />
+    </button>
+  );
+}
+
 function TransactionRow({
   transaction,
   categories,
   currency,
   localCategory,
+  localDescription,
   isSelected,
   onToggleSelect,
   onCategoryChange,
+  onDescriptionChange,
   onIgnore,
   onUnignore,
   onDelete,
@@ -72,9 +133,11 @@ function TransactionRow({
   categories: Category[];
   currency: CurrencyCode;
   localCategory?: string;
+  localDescription?: string;
   isSelected: boolean;
   onToggleSelect: () => void;
   onCategoryChange: (categoryId: string) => void;
+  onDescriptionChange: (desc: string) => void;
   onIgnore: () => void;
   onUnignore: () => void;
   onDelete: () => void;
@@ -85,17 +148,18 @@ function TransactionRow({
   const effectiveSource: CategorySource | undefined = localCategory
     ? 'manual'
     : transaction.categorySource;
+  const displayDescription = localDescription ?? transaction.description;
 
   return (
     <div
-      className={`flex items-center gap-2 px-3 py-2 border-b border-border text-sm hover:bg-surface-hover ${
-        isSelected ? 'bg-accent/5' : ''
+      className={`flex items-center gap-2 px-3 py-2.5 border-b border-glass-separator text-sm hover:bg-black/[0.04] transition-colors ${
+        isSelected ? 'bg-white/[0.04]' : ''
       }`}
     >
       {!isIgnoredView && (
         <button onClick={onToggleSelect} className="p-1 hover:bg-surface rounded">
           {isSelected ? (
-            <CheckSquare className="w-4 h-4 text-accent" />
+            <CheckSquare className="w-4 h-4 text-text-primary" />
           ) : (
             <Square className="w-4 h-4 text-text-muted" />
           )}
@@ -105,16 +169,23 @@ function TransactionRow({
         {formatDate(transaction.date)}
       </span>
       <div className="flex-1 min-w-0">
-        <span className="text-xs text-text-primary truncate block">
-          {transaction.description}
-        </span>
+        {isIgnoredView ? (
+          <span className="text-xs text-text-primary truncate block">
+            {displayDescription}
+          </span>
+        ) : (
+          <InlineEditDescription
+            value={displayDescription}
+            onChange={onDescriptionChange}
+          />
+        )}
         {transaction.source && (
           <span className="text-[10px] text-text-muted truncate block">
             {transaction.source}
           </span>
         )}
       </div>
-      <span className="text-text-primary font-medium w-16 text-right flex-shrink-0 text-xs">
+      <span className="text-text-primary font-medium w-16 text-right flex-shrink-0 text-xs font-mono">
         {formatCurrency(transaction.amount, currency)}
       </span>
 
@@ -269,6 +340,7 @@ export function TransactionsPage() {
   } = usePendingTransactions();
   const { settings } = useSettings();
   const { toast } = useToast();
+  const { isSyncing, progress, triggerSync } = useGmailSync();
 
   const [showIgnored, setShowIgnored] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -279,8 +351,9 @@ export function TransactionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const PAGE_SIZE = 100;
 
-  // Local category overrides (not persisted until Confirm)
+  // Local overrides (not persisted until Confirm)
   const [localCategories, setLocalCategories] = useState<Map<string, string>>(new Map());
+  const [localDescriptions, setLocalDescriptions] = useState<Map<string, string>>(new Map());
 
   // Split transactions into active (pending) and ignored
   const { active, ignored } = useMemo(() => {
@@ -331,6 +404,15 @@ export function TransactionsPage() {
       const next = new Map(prev);
       if (categoryId) next.set(id, categoryId);
       else next.delete(id);
+      return next;
+    });
+  }, []);
+
+  // Local description change
+  const handleDescriptionChange = useCallback((id: string, desc: string) => {
+    setLocalDescriptions((prev) => {
+      const next = new Map(prev);
+      next.set(id, desc);
       return next;
     });
   }, []);
@@ -434,7 +516,7 @@ export function TransactionsPage() {
         amount: t.amount,
         date: t.date,
         category: localCategories.get(t.id) || t.category!,
-        description: t.description,
+        description: localDescriptions.get(t.id) || t.description,
       }));
 
       const response = await fetch('/api/drive', {
@@ -457,6 +539,7 @@ export function TransactionsPage() {
       });
 
       setLocalCategories(new Map());
+      setLocalDescriptions(new Map());
       await Promise.all([refreshPendingTransactions(), refreshExpenses()]);
       toast({
         title: 'Confirmed',
@@ -478,11 +561,8 @@ export function TransactionsPage() {
   const handleIgnore = async (id: string) => {
     try {
       await ignoreTransaction(id);
-      setLocalCategories((prev) => {
-        const next = new Map(prev);
-        next.delete(id);
-        return next;
-      });
+      setLocalCategories((prev) => { const n = new Map(prev); n.delete(id); return n; });
+      setLocalDescriptions((prev) => { const n = new Map(prev); n.delete(id); return n; });
     } catch {
       toast({ title: 'Error', description: 'Failed to ignore', variant: 'destructive' });
     }
@@ -499,7 +579,8 @@ export function TransactionsPage() {
   const handleDelete = async (id: string) => {
     try {
       await deleteTransaction(id);
-      setLocalCategories((prev) => {
+      setLocalCategories((prev) => { const n = new Map(prev); n.delete(id); return n; });
+      setLocalDescriptions((prev) => {
         const next = new Map(prev);
         next.delete(id);
         return next;
@@ -531,17 +612,44 @@ export function TransactionsPage() {
   };
 
   return (
-    <div className="max-w-app mx-auto px-4 py-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+    <div className="max-w-app mx-auto px-4 md:px-6 py-6">
+      {/* Sub-header */}
+      <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-xl font-semibold text-text-primary">Transactions</h1>
-          <p className="text-sm text-text-muted">
-            {active.length} pending
-            {uncategorizedCount > 0 ? ` · ${uncategorizedCount} uncategorized` : ''}
-          </p>
+          {showIgnored ? (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setShowIgnored(false)}
+                className="-ml-2"
+              >
+                <ArrowLeft className="w-4 h-4 mr-1" />
+                Back
+              </Button>
+              <h2 className="text-lg font-semibold text-text-primary">Ignored</h2>
+            </div>
+          ) : (
+            <p className="text-sm text-text-muted">
+              {active.length} pending
+              {uncategorizedCount > 0 ? ` · ${uncategorizedCount} uncategorized` : ''}
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2">
+          {!showIgnored && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowIgnored(true);
+                clearSelection();
+              }}
+            >
+              <EyeOff className="w-4 h-4 mr-1" />
+              Ignored ({ignored.length})
+            </Button>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -550,6 +658,9 @@ export function TransactionsPage() {
             <Settings2 className="w-4 h-4 mr-1" />
             Rules ({rules.length})
           </Button>
+          {settings.gmailSyncEnabled && (
+            <GmailSyncButton isSyncing={isSyncing} progress={progress} onTrigger={triggerSync} />
+          )}
           <Button size="sm" onClick={() => setImportOpen(true)}>
             <Upload className="w-4 h-4 mr-1" />
             Import
@@ -557,61 +668,13 @@ export function TransactionsPage() {
         </div>
       </div>
 
-      {/* Tab Toggle: Pending / Ignored */}
-      <div className="flex gap-1 p-1 bg-surface rounded-lg mb-3">
-        <motion.button
-          type="button"
-          onClick={() => {
-            setShowIgnored(false);
-            clearSelection();
-            setCurrentPage(1);
-          }}
-          whileTap={{ scale: 0.98 }}
-          transition={bouncySpring}
-          className={`flex-1 py-2 px-2 rounded-md text-sm font-medium transition-colors ${
-            !showIgnored
-              ? 'bg-background text-text-primary shadow-sm'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-        >
-          Pending
-          {active.length > 0 && (
-            <span className={`ml-1 text-xs ${!showIgnored ? 'text-accent' : ''}`}>
-              {active.length}
-            </span>
-          )}
-        </motion.button>
-        <motion.button
-          type="button"
-          onClick={() => {
-            setShowIgnored(true);
-            clearSelection();
-            setCurrentPage(1);
-          }}
-          whileTap={{ scale: 0.98 }}
-          transition={bouncySpring}
-          className={`flex-1 py-2 px-2 rounded-md text-sm font-medium transition-colors ${
-            showIgnored
-              ? 'bg-background text-text-primary shadow-sm'
-              : 'text-text-muted hover:text-text-secondary'
-          }`}
-        >
-          Ignored
-          {ignored.length > 0 && (
-            <span className={`ml-1 text-xs ${showIgnored ? 'text-accent' : ''}`}>
-              {ignored.length}
-            </span>
-          )}
-        </motion.button>
-      </div>
-
       {/* Actions Bar */}
       {currentList.length > 0 && (
-        <div className="flex items-center justify-between mb-3 p-2 bg-surface rounded-lg text-sm">
+        <div className="flex items-center justify-between mb-3 p-2.5 glass-tab-bar text-sm">
           <div className="flex items-center gap-3">
             <span className="text-text-muted">
               Total:{' '}
-              <span className="font-medium text-text-primary">
+              <span className="font-medium text-text-primary font-mono">
                 {formatCurrency(totalAmount, settings.currency)}
               </span>
             </span>
@@ -685,9 +748,9 @@ export function TransactionsPage() {
       )}
 
       {/* Transaction Table */}
-      <div className="border border-border rounded-lg overflow-hidden">
+      <div className="glass-card overflow-hidden">
         {/* Table Header */}
-        <div className="bg-surface px-3 py-2 border-b border-border flex items-center gap-2 text-xs text-text-muted font-medium">
+        <div className="px-3 py-2 border-b border-[var(--glass-separator)] flex items-center gap-2 text-xs text-text-muted font-medium">
           {!showIgnored && <span className="w-6" />}
           <span className="w-20">Date</span>
           <span className="flex-1">Description</span>
@@ -698,7 +761,7 @@ export function TransactionsPage() {
 
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
-            <Loader2 className="w-6 h-6 animate-spin text-accent" />
+            <Loader2 className="w-6 h-6 animate-spin text-text-muted" />
           </div>
         ) : currentList.length === 0 ? (
           <div className="text-center py-12">
@@ -726,10 +789,14 @@ export function TransactionsPage() {
                 categories={categories}
                 currency={settings.currency}
                 localCategory={localCategories.get(transaction.id)}
+                localDescription={localDescriptions.get(transaction.id)}
                 isSelected={selectedIds.has(transaction.id)}
                 onToggleSelect={() => toggleSelect(transaction.id)}
                 onCategoryChange={(catId) =>
                   handleCategoryChange(transaction.id, catId)
+                }
+                onDescriptionChange={(desc) =>
+                  handleDescriptionChange(transaction.id, desc)
                 }
                 onIgnore={() => handleIgnore(transaction.id)}
                 onUnignore={() => handleUnignore(transaction.id)}

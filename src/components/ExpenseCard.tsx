@@ -7,6 +7,7 @@ import { formatCurrency, cn } from '@/lib/utils';
 import { useSwipe } from '@/hooks/useSwipe';
 import { useSettings } from '@/context/SettingsContext';
 import { smoothSpring } from '@/lib/animations';
+import { setDialogOrigin } from '@/components/FloatingAddButton';
 
 interface ExpenseCardProps {
   expense: Expense;
@@ -25,9 +26,7 @@ export function ExpenseCard({
   const { offsetX, isDragging, direction, handlers, reset } = useSwipe({
     threshold: 50,
     maxSwipe: 80,
-    onSwipeLeft: () => {
-      // Keep showing delete button
-    },
+    onSwipeLeft: () => {},
   });
 
   const showDelete = offsetX < -40 || direction === 'left';
@@ -38,7 +37,7 @@ export function ExpenseCard({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-lg">
+    <div className="relative overflow-hidden">
       {/* Delete action background */}
       <div
         className={cn(
@@ -55,45 +54,50 @@ export function ExpenseCard({
         </button>
       </div>
 
-      {/* Main card content */}
+      {/* Main card content — iOS 26 list row style */}
       <motion.div
         {...handlers}
-        onClick={() => !isDragging && offsetX === 0 && onEdit(expense)}
+        onClick={(e) => {
+          if (!isDragging && offsetX === 0) {
+            setDialogOrigin(e);
+            onEdit(expense);
+          }
+        }}
         className={cn(
-          'relative flex items-center p-4 bg-surface cursor-pointer transition-colors duration-200',
-          'active:bg-surface-hover',
+          'relative flex items-center px-4 md:px-5 py-3 cursor-pointer transition-colors duration-150',
+          'active:bg-black/[0.04]',
           isDragging && 'transition-none'
         )}
         style={{
           transform: `translateX(${offsetX}px)`,
         }}
-        whileHover={{ y: -1 }}
-        transition={{ duration: 0.2 }}
+        transition={{ duration: 0.15 }}
       >
-        {/* Category indicator */}
+        {/* Category icon/emoji circle */}
         <div
-          className="w-3 h-3 rounded-full mr-3 flex-shrink-0"
-          style={{ backgroundColor: category?.color || '#D4D4D4' }}
-        />
+          className="w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center flex-shrink-0 mr-3"
+          style={{
+            backgroundColor: category?.color ? `${category.color}18` : 'rgba(142, 142, 147, 0.12)',
+          }}
+        >
+          <span className="text-base md:text-lg">
+            {category?.icon || '💰'}
+          </span>
+        </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="font-medium text-text-primary truncate">
-              {category?.name || 'Other'}
-            </span>
-            {category?.icon && (
-              <span className="text-sm">{category.icon}</span>
-            )}
-          </div>
-          <p className="text-sm text-text-secondary truncate">
-            {expense.description || 'No description'}
+          <p className="text-[15px] font-medium text-text-primary truncate leading-tight">
+            {expense.description || category?.name || 'Expense'}
+          </p>
+          <p className="text-xs text-text-secondary truncate mt-0.5">
+            {category?.name || 'Other'}
           </p>
         </div>
 
         {/* Amount */}
-        <div className="text-right ml-4 flex-shrink-0">
-          <p className="font-semibold text-text-primary">
+        <div className="text-right ml-3 flex-shrink-0">
+          <p className="text-[15px] font-semibold text-text-primary font-mono">
             {formatCurrency(expense.amount, settings.currency)}
           </p>
         </div>

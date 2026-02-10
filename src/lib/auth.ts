@@ -14,6 +14,7 @@ export const authOptions: NextAuthOptions = {
             'profile',
             'https://www.googleapis.com/auth/spreadsheets',
             'https://www.googleapis.com/auth/drive.file',
+            'https://www.googleapis.com/auth/gmail.readonly',
           ].join(' '),
           prompt: 'consent',
           access_type: 'offline',

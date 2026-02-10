@@ -4,20 +4,71 @@
 
 @layer base {
   :root {
-    --background: #FAFAFA;
+    --background: #F2F2F7;
     --surface: #FFFFFF;
     --surface-hover: #F5F5F5;
     --border: #E5E5E5;
     --border-focus: #D4D4D4;
-    --text-primary: #171717;
-    --text-secondary: #525252;
-    --text-muted: #A3A3A3;
-    --accent: #2563EB;
-    --accent-hover: #1D4ED8;
-    --accent-light: #EFF6FF;
-    --success: #22C55E;
-    --warning: #F59E0B;
-    --error: #EF4444;
+    --text-primary: #000000;
+    --text-secondary: rgba(60, 60, 67, 0.6);
+    --text-muted: rgba(60, 60, 67, 0.36);
+    --accent: #007AFF;
+    --accent-hover: #0056CC;
+    --accent-light: #E8F0FE;
+    --success: #34C759;
+    --warning: #FF9500;
+    --error: #FF3B30;
+
+    /* iOS 26 Glass tokens */
+    --glass-bg: rgba(255, 255, 255, 0.55);
+    --glass-bg-heavy: rgba(255, 255, 255, 0.78);
+    --glass-border: rgba(255, 255, 255, 0.7);
+    --glass-shadow: 0 2px 20px rgba(0, 0, 0, 0.06);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --glass-separator: rgba(60, 60, 67, 0.12);
+
+    /* iOS 26 semantic backgrounds */
+    --bg-grouped-primary: #F2F2F7;
+    --bg-grouped-secondary: #FFFFFF;
+    --bg-grouped-tertiary: #F2F2F7;
+
+    /* Glass card: mostly opaque with a hint of translucency */
+    --glass-card-bg: rgba(255, 255, 255, 0.88);
+    --glass-card-border: rgba(255, 255, 255, 0.5);
+
+    /* Glass pill / tab tokens */
+    --glass-pill-bg: rgba(255, 255, 255, 0.65);
+    --glass-pill-border: rgba(255, 255, 255, 0.8);
+    --glass-tab-bar-bg: rgba(255, 255, 255, 0.35);
+  }
+
+  .dark {
+    --background: #162032;
+    --surface: #1e2d42;
+    --surface-hover: rgba(255, 255, 255, 0.06);
+    --border: rgba(255, 255, 255, 0.08);
+    --border-focus: rgba(255, 255, 255, 0.20);
+    --text-primary: #f0f2f5;
+    --text-secondary: rgba(220, 225, 240, 0.65);
+    --text-muted: rgba(200, 210, 230, 0.35);
+    --accent: #0a84ff;
+    --accent-hover: #409cff;
+    --glass-bg: rgba(255, 255, 255, 0.06);
+    --glass-bg-heavy: rgba(20, 35, 60, 0.70);
+    --glass-border: rgba(255, 255, 255, 0.10);
+    --glass-shadow: 0 2px 24px rgba(0, 0, 0, 0.25);
+    --glass-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    --glass-separator: rgba(255, 255, 255, 0.08);
+    --bg-grouped-primary: #162032;
+    --bg-grouped-secondary: #1e2d42;
+    --bg-grouped-tertiary: #253750;
+
+    --glass-card-bg: rgba(30, 45, 66, 0.2);
+    --glass-card-border: rgba(255, 255, 255, 0.06);
+
+    --glass-pill-bg: rgba(255, 255, 255, 0.10);
+    --glass-pill-border: rgba(255, 255, 255, 0.16);
+    --glass-tab-bar-bg: rgba(255, 255, 255, 0.06);
   }
 
   * {
@@ -26,6 +77,39 @@
 
   body {
     @apply bg-background text-text-primary antialiased;
+  }
+}
+
+@layer components {
+  /* iOS 26 Liquid Glass material */
+  .glass {
+    background: var(--glass-bg);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), var(--glass-highlight);
+  }
+
+  .glass-heavy {
+    background: var(--glass-bg-heavy);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid var(--glass-border);
+    box-shadow: var(--glass-shadow), var(--glass-highlight);
+  }
+
+  /* iOS 26 grouped list — nearly transparent, dividers do the work */
+  .glass-card {
+    background: var(--glass-card-bg);
+    backdrop-filter: blur(16px) saturate(130%);
+    -webkit-backdrop-filter: blur(16px) saturate(130%);
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid var(--glass-card-border);
+  }
+
+  .glass-separator {
+    border-color: var(--glass-separator);
   }
 }
 
@@ -39,8 +123,11 @@
   }
 }
 
-/* Inter font loading via Google Fonts */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+/* Numeric values: system monospace */
+.num, .tabular-nums, .font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Custom utility classes */
 .touch-pan-y {
@@ -84,7 +171,173 @@
   animation: shimmer 1.5s infinite;
 }
 
+.dark .skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.04) 25%,
+    rgba(255, 255, 255, 0.08) 50%,
+    rgba(255, 255, 255, 0.04) 75%
+  );
+  background-size: 200% 100%;
+}
+
 /* Safe area for iOS devices */
 .safe-area-bottom {
   padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* iOS 26 mesh gradient background */
+.ios26-bg {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 0%, rgba(80, 180, 220, 0.18) 0%, transparent 60%),
+    radial-gradient(ellipse 70% 50% at 85% 8%, rgba(140, 100, 230, 0.14) 0%, transparent 55%),
+    radial-gradient(ellipse 60% 40% at 50% 100%, rgba(100, 200, 180, 0.10) 0%, transparent 50%),
+    var(--bg-grouped-primary);
+}
+
+.dark .ios26-bg {
+  background:
+    radial-gradient(ellipse 120% 90% at 5% -15%, rgba(30, 140, 170, 0.55) 0%, transparent 55%),
+    radial-gradient(ellipse 90% 80% at 100% -5%, rgba(70, 60, 160, 0.45) 0%, transparent 50%),
+    radial-gradient(ellipse 100% 70% at 50% 115%, rgba(25, 120, 110, 0.40) 0%, transparent 45%),
+    radial-gradient(ellipse 70% 50% at 75% 45%, rgba(40, 80, 140, 0.25) 0%, transparent 45%),
+    radial-gradient(ellipse 50% 40% at 25% 55%, rgba(30, 100, 120, 0.20) 0%, transparent 40%),
+    var(--bg-grouped-primary);
+}
+
+/* Glass pill (tabs, category chips) */
+.glass-pill {
+  background: var(--glass-pill-bg);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid var(--glass-pill-border);
+  border-radius: 50px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06), var(--glass-highlight);
+}
+
+/* Glass tab bar container */
+.glass-tab-bar {
+  background: var(--glass-tab-bar-bg);
+  backdrop-filter: blur(24px) saturate(160%);
+  -webkit-backdrop-filter: blur(24px) saturate(160%);
+  border: 1px solid var(--glass-border);
+  border-radius: 50px;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Glass button treatment */
+.glass-btn {
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), var(--glass-highlight);
+}
+
+/* ========================================
+   Liquid Glass Animation System
+   ======================================== */
+
+:root {
+  --dialog-origin-x: 0px;
+  --dialog-origin-y: 0px;
+}
+
+/* --- Keyframes --- */
+
+@keyframes glass-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes glass-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes glass-dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(
+      calc(-50% + var(--dialog-origin-x)),
+      calc(-50% + var(--dialog-origin-y))
+    ) scale(0.55);
+    filter: blur(8px);
+  }
+  40% {
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    filter: blur(0px);
+  }
+}
+
+@keyframes glass-dialog-out {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    filter: blur(0px);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.92);
+    filter: blur(4px);
+  }
+}
+
+@keyframes glass-dropdown-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88) translateY(-8px);
+    filter: blur(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    filter: blur(0px);
+  }
+}
+
+@keyframes glass-dropdown-out {
+  from {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+}
+
+/* --- Animation classes (Radix data-state driven) --- */
+
+.glass-dialog-overlay {
+  will-change: opacity;
+}
+.glass-dialog-overlay[data-state="open"] {
+  animation: glass-overlay-in 350ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.glass-dialog-overlay[data-state="closed"] {
+  animation: glass-overlay-out 200ms ease-out both;
+}
+
+.glass-dialog-content {
+  will-change: transform, opacity, filter;
+  transform: translate(-50%, -50%);
+}
+.glass-dialog-content[data-state="open"] {
+  animation: glass-dialog-in 500ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.glass-dialog-content[data-state="closed"] {
+  animation: glass-dialog-out 250ms ease-in both;
+}
+
+.glass-dropdown {
+  will-change: transform, opacity, filter;
+}
+.glass-dropdown[data-state="open"] {
+  animation: glass-dropdown-in 400ms cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.glass-dropdown[data-state="closed"] {
+  animation: glass-dropdown-out 200ms ease-in both;
 }

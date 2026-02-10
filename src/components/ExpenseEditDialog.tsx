@@ -148,7 +148,7 @@ export function ExpenseEditDialog({
                 min="0"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="pl-8 text-2xl font-semibold"
+                className="pl-8 text-2xl font-semibold font-mono"
                 placeholder="0.00"
               />
             </div>

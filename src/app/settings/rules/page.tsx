@@ -63,7 +63,7 @@ function ConditionEditor({ condition, onChange, onRemove, canRemove }: Condition
   const isBetween = condition.matchType === 'between';
 
   return (
-    <div className="flex flex-wrap items-center gap-2 p-3 bg-surface-hover rounded-lg">
+    <div className="flex flex-wrap items-center gap-2 p-3 rounded-xl" style={{ background: 'var(--bg-grouped-tertiary)' }}>
       <Select
         value={condition.field}
         onValueChange={(value: RuleField) => {
@@ -327,8 +327,8 @@ function RuleCard({
 
   return (
     <div
-      className={`border rounded-lg overflow-hidden transition-colors ${
-        rule.enabled ? 'border-border bg-surface' : 'border-border/50 bg-surface/50'
+      className={`glass-card overflow-hidden transition-colors ${
+        rule.enabled ? '' : 'opacity-60'
       }`}
     >
       <div className="flex items-center gap-3 p-4">
@@ -470,15 +470,15 @@ export default function RulesPage() {
   if (status === 'loading' || isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-accent" />
+        <Loader2 className="w-8 h-8 animate-spin text-text-muted" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
+    <div className="min-h-screen ios26-bg">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <button
@@ -496,7 +496,7 @@ export default function RulesPage() {
         </div>
       </header>
 
-      <main className="max-w-app mx-auto px-4 py-6">
+      <main className="max-w-app mx-auto px-4 md:px-6 py-6">
         <p className="text-text-secondary mb-6">
           Rules automatically categorize imported transactions based on conditions you define.
         </p>

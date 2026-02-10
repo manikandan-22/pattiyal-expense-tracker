@@ -22,9 +22,9 @@ export default function CategoriesPage() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen bg-background">
-        <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-          <div className="max-w-app mx-auto px-4 py-4">
+      <div className="min-h-screen ios26-bg">
+        <header className="">
+          <div className="max-w-app mx-auto px-5 md:px-8 py-4">
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg skeleton" />
               <div className="h-6 w-28 skeleton rounded" />
@@ -39,10 +39,10 @@ export default function CategoriesPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen ios26-bg">
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="max-w-app mx-auto px-4 py-4">
+      <header className="">
+        <div className="max-w-app mx-auto px-5 md:px-8 py-4">
           <div className="flex items-center gap-3">
             <button
               onClick={() => router.back()}
@@ -61,7 +61,7 @@ export default function CategoriesPage() {
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-app mx-auto px-4 py-6"
+        className="max-w-app mx-auto px-4 md:px-6 py-6"
       >
         <p className="text-sm text-text-secondary mb-6">
           Organize your expenses with custom categories. Add, edit, or remove categories to match your spending habits.

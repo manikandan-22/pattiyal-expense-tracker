@@ -175,6 +175,7 @@ export const CATEGORY_COLORS: Record<string, string> = {
 export interface UserSettings {
   currency: CurrencyCode;
   onboardingCompleted: boolean;
+  gmailSyncEnabled: boolean;
 }
 
 export type CurrencyCode = 'USD' | 'EUR' | 'GBP' | 'INR' | 'JPY' | 'CAD' | 'AUD' | 'CHF' | 'CNY' | 'SGD';
@@ -202,6 +203,7 @@ export const SUPPORTED_CURRENCIES: CurrencyInfo[] = [
 export const DEFAULT_SETTINGS: UserSettings = {
   currency: 'USD',
   onboardingCompleted: false,
+  gmailSyncEnabled: false,
 };
 
 export interface SettingsContextType {
@@ -254,4 +256,25 @@ export interface ToolResultDisplay {
   tool: string;
   summary: string;
   success: boolean;
+}
+
+// === Gmail Sync Types ===
+
+export interface GmailSyncState {
+  lastSyncDate: string;
+  processedMessageIds: string[];
+}
+
+export interface ParsedEmailTransaction {
+  emailId: string;
+  amount: number;
+  date: string;
+  description: string;
+}
+
+export interface GmailSyncStats {
+  emailsFound: number;
+  dupsSkipped: number;
+  parsed: number;
+  imported: number;
 }

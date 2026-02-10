@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 
 export default function SignInPage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+    <div className="min-h-screen flex items-center justify-center ios26-bg px-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -21,7 +21,7 @@ export default function SignInPage() {
           </p>
         </div>
 
-        <div className="bg-surface rounded-xl p-8 shadow-soft">
+        <div className="glass-card p-8">
           <p className="text-sm text-text-secondary text-center mb-6">
             Sign in with your Google account to sync your expenses across devices
           </p>

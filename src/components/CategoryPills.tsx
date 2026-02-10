@@ -34,46 +34,44 @@ export function CategoryPills({
         whileTap={{ scale: 0.95 }}
         onClick={() => onSelect(null)}
         className={cn(
-          'flex-shrink-0 px-4 py-2 rounded-full text-sm font-medium transition-colors',
+          'flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200',
           selectedCategory === null
-            ? 'bg-text-primary text-white'
-            : 'bg-surface-hover text-text-secondary hover:bg-border'
+            ? 'glass-pill text-text-primary'
+            : 'text-text-secondary hover:text-text-primary'
         )}
       >
         All
       </motion.button>
 
       {/* Category pills */}
-      {categories.map((category) => (
-        <motion.button
-          key={category.id}
-          whileTap={{ scale: 0.95 }}
-          onClick={() => onSelect(category.id)}
-          className={cn(
-            'flex-shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-full text-sm font-medium transition-colors',
-            selectedCategory === category.id
-              ? 'text-text-primary'
-              : 'bg-surface-hover text-text-secondary hover:bg-border'
-          )}
-          style={
-            selectedCategory === category.id
-              ? { backgroundColor: category.color }
-              : undefined
-          }
-        >
-          {category.icon && <span>{category.icon}</span>}
-          {category.name}
-        </motion.button>
-      ))}
+      {categories.map((category) => {
+        const isSelected = selectedCategory === category.id;
+        return (
+          <motion.button
+            key={category.id}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => onSelect(category.id)}
+            className={cn(
+              'flex-shrink-0 flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-200',
+              isSelected
+                ? 'glass-pill text-text-primary'
+                : 'text-text-secondary hover:text-text-primary'
+            )}
+          >
+            {category.icon && <span className="text-xs">{category.icon}</span>}
+            {category.name}
+          </motion.button>
+        );
+      })}
 
       {/* Add new category button */}
       {showAddButton && onAddNew && (
         <motion.button
           whileTap={{ scale: 0.95 }}
           onClick={onAddNew}
-          className="flex-shrink-0 flex items-center gap-1 px-4 py-2 rounded-full text-sm font-medium bg-surface-hover text-text-secondary hover:bg-border transition-colors"
+          className="flex-shrink-0 flex items-center gap-1 px-4 py-1.5 rounded-full text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
         >
-          <Plus className="w-4 h-4" />
+          <Plus className="w-3.5 h-3.5" />
           Add
         </motion.button>
       )}

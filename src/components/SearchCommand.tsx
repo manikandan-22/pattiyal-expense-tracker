@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Expense, Category } from '@/types';
 import { formatCurrency, formatDate, cn } from '@/lib/utils';
 import { useSettings } from '@/context/SettingsContext';
-import { modalVariants, backdropVariants } from '@/lib/animations';
+import { liquidSpring } from '@/lib/animations';
 
 interface SearchCommandProps {
   open: boolean;
@@ -71,28 +71,28 @@ export function SearchCommand({
         <>
           {/* Backdrop */}
           <motion.div
-            variants={backdropVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3, ease: [0.32, 0.72, 0, 1] }}
+            className="fixed inset-0 z-50 bg-black/30 backdrop-blur-xl"
             onClick={() => onOpenChange(false)}
           />
 
           {/* Command Dialog */}
           <motion.div
-            variants={modalVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
+            initial={{ opacity: 0, scale: 0.88, y: -20, filter: 'blur(8px)' }}
+            animate={{ opacity: 1, scale: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, scale: 0.95, y: -10, filter: 'blur(4px)' }}
+            transition={liquidSpring}
             className="fixed inset-x-4 top-20 z-50 mx-auto max-w-lg"
           >
             <Command
-              className="bg-surface rounded-xl shadow-elevated overflow-hidden"
+              className="rounded-2xl shadow-elevated overflow-hidden bg-[var(--glass-bg-heavy)] backdrop-blur-[40px] backdrop-saturate-[180%] border border-[var(--glass-border)]"
               shouldFilter={false}
             >
               {/* Search Input */}
-              <div className="flex items-center gap-3 px-4 border-b border-border">
+              <div className="flex items-center gap-3 px-4 border-b border-glass-separator">
                 <Search className="w-5 h-5 text-text-muted" />
                 <Command.Input
                   value={search}
@@ -154,7 +154,7 @@ export function SearchCommand({
                               {category?.name} · {formatDate(expense.date)}
                             </p>
                           </div>
-                          <span className="text-sm font-medium text-text-primary flex-shrink-0">
+                          <span className="text-sm font-medium text-text-primary flex-shrink-0 font-mono">
                             {formatCurrency(expense.amount, settings.currency)}
                           </span>
                         </Command.Item>
@@ -194,7 +194,7 @@ export function SearchCommand({
                               {category?.name} · {formatDate(expense.date)}
                             </p>
                           </div>
-                          <span className="text-sm font-medium text-text-primary flex-shrink-0">
+                          <span className="text-sm font-medium text-text-primary flex-shrink-0 font-mono">
                             {formatCurrency(expense.amount, settings.currency)}
                           </span>
                         </Command.Item>
@@ -205,7 +205,7 @@ export function SearchCommand({
               </Command.List>
 
               {/* Footer */}
-              <div className="flex items-center justify-between px-4 py-2 border-t border-border text-xs text-text-muted">
+              <div className="flex items-center justify-between px-4 py-2 border-t border-glass-separator text-xs text-text-muted">
                 <span>Type to search</span>
                 <span>
                   <kbd className="px-1.5 py-0.5 bg-surface-hover rounded text-xs">esc</kbd>

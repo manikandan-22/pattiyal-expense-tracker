@@ -46,7 +46,7 @@ export function CategorySummary({ breakdown, className }: CategorySummaryProps) 
                 ({item.count} {item.count === 1 ? 'expense' : 'expenses'})
               </span>
             </div>
-            <span className="text-sm font-semibold text-text-primary">
+            <span className="text-sm font-semibold text-text-primary font-mono">
               {formatCurrency(item.total, settings.currency)}
             </span>
           </div>
